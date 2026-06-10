@@ -172,14 +172,14 @@ export function AIAssistant({ context }: { context: Context }) {
   return (
     <>
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-50"
+        onClick={() => setOpen((v: boolean) => !v)}
+        className="fixed bottom-6 right-4 sm:right-6 w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-50"
       >
         {open ? <ChevronDown size={20} /> : <MessageSquare size={20} />}
       </button>
 
       {open && (
-        <div className="fixed bottom-20 right-6 w-80 sm:w-96 h-[520px] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
+        <div className="fixed bottom-20 right-2 left-2 sm:left-auto sm:right-6 sm:w-96 h-[min(520px,calc(100dvh-88px))] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Bot size={16} className="text-primary" />

@@ -26,11 +26,26 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
   },
-
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-recharts': ['recharts'],
+          'vendor-mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-radix': [
+            '@radix-ui/react-select', '@radix-ui/react-slider', '@radix-ui/react-tabs',
+            '@radix-ui/react-dialog', '@radix-ui/react-tooltip', '@radix-ui/react-dropdown-menu',
+          ],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
 })
