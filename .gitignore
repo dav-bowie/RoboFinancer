@@ -144,3 +144,5 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+scripts/LCA_Disclosure_Data_FY2025_Q4.xlsx
+scripts/__pycache__/
