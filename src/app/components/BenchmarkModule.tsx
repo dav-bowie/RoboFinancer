@@ -7,6 +7,7 @@ import {
   getPercentile,
   fmtCurrency,
 } from "../../lib/calculations";
+import { supabase } from "../../lib/supabaseClient";
 
 interface Props {
   onUpdate: (data: { role: string; level: string; city: string; totalComp: number }) => void;
@@ -22,8 +23,74 @@ export function BenchmarkModule({ onUpdate }: Props) {
 
   const levels = LEVELS_BY_ROLE[role] || [];
   const totalComp = baseSalary + bonus + equity;
-  const marketData = useMemo(() => getMarketData(role, level, city), [role, level, city]);
-  const percentile = marketData ? getPercentile(totalComp, marketData) : null;
+  // Local fallback market data
+  const fallbackMarketData = useMemo(() => getMarketData(role, level, city), [role, level, city]);
+
+  // Supabase-driven market data (if available)
+  const [marketData, setMarketData] = useState<any | null>(null);
+  const [loadingMarket, setLoadingMarket] = useState(false);
+  const [percentile, setPercentile] = useState<number | null>(null);
+
+  // derive a normalized role and state from selections
+  const roleNormalized = role.toLowerCase().trim();
+  const locationState = city.split(",").pop()?.trim() || "";
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchMarket() {
+      setLoadingMarket(true);
+      try {
+        if (!supabase) {
+          // fallback to static data
+          if (mounted) setMarketData(fallbackMarketData || null);
+          return;
+        }
+
+        // Query salary_benchmarks filtering by role_normalized ILIKE, location_state,
+        // and a years_exp range. We don't have user's years_exp input in this UI;
+        // for now omit years_exp filter so we get broader matches.
+        const { data, error } = await supabase
+          .from("salary_benchmarks")
+          .select("base_salary")
+          .ilike("role_normalized", `%${roleNormalized}%`)
+          .eq("location_state", locationState)
+          .limit(1000);
+
+        if (error) {
+          console.error("Supabase query error:", error);
+          if (mounted) setMarketData(fallbackMarketData || null);
+        } else if (data && data.length > 0) {
+          // compute percentiles from base_salary values
+          const salaries = data.map((r: any) => Number(r.base_salary)).filter(Boolean).sort((a: number, b: number) => a - b);
+          const p25 = salaries[Math.floor(0.25 * (salaries.length - 1))] || fallbackMarketData?.p25 || 0;
+          const p50 = salaries[Math.floor(0.5 * (salaries.length - 1))] || fallbackMarketData?.p50 || 0;
+          const p75 = salaries[Math.floor(0.75 * (salaries.length - 1))] || fallbackMarketData?.p75 || 0;
+          const p90 = salaries[Math.floor(0.9 * (salaries.length - 1))] || fallbackMarketData?.p90 || 0;
+
+          const computed = { p25, p50, p75, p90 };
+          if (mounted) setMarketData(computed);
+
+          // percentile rank of totalComp among salaries
+          const idx = salaries.findIndex((s: number) => s >= totalComp);
+          const rank = idx === -1 ? 100 : Math.round((idx / Math.max(1, salaries.length - 1)) * 100);
+          if (mounted) setPercentile(rank);
+        } else {
+          if (mounted) setMarketData(fallbackMarketData || null);
+        }
+      } catch (err) {
+        console.error(err);
+        if (mounted) setMarketData(fallbackMarketData || null);
+      } finally {
+        if (mounted) setLoadingMarket(false);
+      }
+    }
+
+    fetchMarket();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, level, city, totalComp]);
 
   const handleRoleChange = (newRole: string) => {
     setRole(newRole);
@@ -35,29 +102,31 @@ export function BenchmarkModule({ onUpdate }: Props) {
     onUpdate({ role, level, city, totalComp });
   }, [role, level, city, totalComp]);
 
+  const actualPercentile = percentile !== null ? percentile : fallbackMarketData ? getPercentile(totalComp, fallbackMarketData) : null;
+
   const percentileColor =
-    percentile === null
+    actualPercentile === null
       ? "text-muted-foreground"
-      : percentile >= 75
-      ? "text-emerald-400"
-      : percentile >= 50
-      ? "text-sky-400"
-      : percentile >= 25
-      ? "text-amber-400"
-      : "text-red-400";
+      : actualPercentile >= 75
+        ? "text-emerald-400"
+        : actualPercentile >= 50
+          ? "text-sky-400"
+          : actualPercentile >= 25
+            ? "text-amber-400"
+            : "text-red-400";
 
   const verdict =
-    percentile === null
+    actualPercentile === null
       ? "—"
-      : percentile >= 75
-      ? "Above Market"
-      : percentile >= 50
-      ? "At Market"
-      : percentile >= 25
-      ? "Below Market"
-      : "Significantly Below Market";
+      : actualPercentile >= 75
+        ? "Above Market"
+        : actualPercentile >= 50
+          ? "At Market"
+          : actualPercentile >= 25
+            ? "Below Market"
+            : "Significantly Below Market";
 
-  const markerPct = percentile !== null ? Math.min(98, Math.max(2, percentile)) : 0;
+  const markerPct = actualPercentile !== null ? Math.min(98, Math.max(2, actualPercentile)) : 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

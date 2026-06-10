@@ -31,10 +31,20 @@ def load_env() -> None:
 
 
 def get_supabase_client() -> Any:
+    # Ensure environment is loaded
+    load_dotenv()
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
+
+    # Supabase client expects the base URL (e.g. https://xyz.supabase.co).
+    # Some .env values include the REST path (/rest/v1/) which causes
+    # Invalid path errors (PGRST125). Strip any path after the host.
+    if "/rest" in url:
+        url = url.split("/rest")[0]
+    url = url.rstrip("/")
+
     return create_client(url, key)
 
 
@@ -134,6 +144,8 @@ def upsert_batches(client: Any, table: str, records: List[Dict], batch_size: int
     for idx, batch in enumerate(chunked_iterable(records, batch_size), start=1):
         print(f"Loading batch {idx} (rows {len(batch)})...")
         try:
+            # Attempt upsert; supabase-py uses PostgREST under the hood.
+            # If this raises an exception or returns an error, capture details.
             res = client.table(table).upsert(batch).execute()
             # supabase-py returns a response object; check for error
             err = None
@@ -144,10 +156,22 @@ def upsert_batches(client: Any, table: str, records: List[Dict], batch_size: int
 
             if err:
                 print(f"Error loading batch {idx}: {err}")
+                # Print client URL when available to help debug path issues
+                try:
+                    base = getattr(client, 'url', None) or getattr(client, 'supabase_url', None)
+                    print(f"Supabase URL used: {base}")
+                except Exception:
+                    pass
             else:
                 total += len(batch)
         except Exception as e:
             print(f"Exception when loading batch {idx}: {e}")
+            # Show client URL for debugging
+            try:
+                base = getattr(client, 'url', None) or getattr(client, 'supabase_url', None)
+                print(f"Supabase URL used: {base}")
+            except Exception:
+                pass
     return total
 
 
