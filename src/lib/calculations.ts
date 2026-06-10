@@ -7,6 +7,7 @@ export interface TaxBreakdown {
   socialSecurity: number;
   medicare: number;
   retirement401k: number;
+  caSDI?: number;
   netTakeHome: number;
 }
 
@@ -129,17 +130,42 @@ export function calcTakeHome(
   gross: number,
   filingStatus: 'single' | 'married',
   stateCode: string,
-  retirementRate: number
+  retirementRate: number,
+  retirementType: 'traditional' | 'roth' = 'traditional'
 ): TaxBreakdown {
   const stdDeduction = filingStatus === 'married' ? 29200 : 14600;
-  const retirement401k = gross * (retirementRate / 100);
-  const federalTaxableIncome = Math.max(0, gross - stdDeduction - retirement401k);
+  // 401(k) contribution amount (cap at IRS 2024 elective deferral limit)
+  const contribution401k = Math.min(gross * (retirementRate / 100), 23000);
+
+  // Roth contributions are post-tax and should NOT reduce taxable income.
+  // Only traditional (pre-tax) 401k reduces federal/state taxable income.
+  const retirement401kPreTax = retirementType === 'traditional' ? contribution401k : 0;
+
+  const federalTaxableIncome = Math.max(0, gross - stdDeduction - retirement401kPreTax);
   const brackets = filingStatus === 'married' ? FEDERAL_BRACKETS_MARRIED_2024 : FEDERAL_BRACKETS_SINGLE_2024;
   const federalTax = calcMarginalTax(federalTaxableIncome, brackets);
-  const stateTax = calcStateTax(gross - retirement401k, stateCode);
+
+  // State taxable income also reduced by pre-tax 401k (not by Roth)
+  const stateTax = calcStateTax(gross - retirement401kPreTax, stateCode);
+
   const { socialSecurity, medicare } = calcFICA(gross);
-  const netTakeHome = gross - federalTax - stateTax - socialSecurity - medicare - retirement401k;
-  return { gross, federalTax, stateTax, socialSecurity, medicare, retirement401k, netTakeHome };
+
+  // California SDI (employee) - 1.1% of gross salary for CA
+  const caSDI = stateCode === 'CA' ? gross * 0.011 : 0;
+
+  // netTakeHome subtracts the actual contribution (whether roth or traditional)
+  const netTakeHome = gross - federalTax - stateTax - socialSecurity - medicare - contribution401k - caSDI;
+
+  return {
+    gross,
+    federalTax,
+    stateTax,
+    socialSecurity,
+    medicare,
+    retirement401k: contribution401k,
+    caSDI,
+    netTakeHome,
+  };
 }
 
 // Market compensation data (total comp) by role and level
