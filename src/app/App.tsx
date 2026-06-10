@@ -1,10 +1,25 @@
-import { useState, useCallback } from "react";
-import { BenchmarkModule } from "./components/BenchmarkModule";
-import { TakeHomeModule } from "./components/TakeHomeModule";
-import { BudgetModule } from "./components/BudgetModule";
-import { OfferModule } from "./components/OfferModule";
-import { AIAssistant } from "./components/AIAssistant";
-import { BarChart2 } from "lucide-react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { BarChart2, X, Info, Link2, Check } from "lucide-react";
+import { readUrlState, writeUrlState } from "../lib/useUrlState";
+
+const BenchmarkModule = lazy(() =>
+  import("./components/BenchmarkModule").then((m) => ({ default: m.BenchmarkModule }))
+);
+const TakeHomeModule = lazy(() =>
+  import("./components/TakeHomeModule").then((m) => ({ default: m.TakeHomeModule }))
+);
+const BudgetModule = lazy(() =>
+  import("./components/BudgetModule").then((m) => ({ default: m.BudgetModule }))
+);
+const OfferModule = lazy(() =>
+  import("./components/OfferModule").then((m) => ({ default: m.OfferModule }))
+);
+const AIAssistant = lazy(() =>
+  import("./components/AIAssistant").then((m) => ({ default: m.AIAssistant }))
+);
+
+const DISCLAIMER =
+  "RoboFinancer provides estimates and educational information only. This is not financial, tax, or legal advice. Consult a licensed professional before making financial decisions.";
 
 type Tab = "benchmark" | "takehome" | "budget" | "offer";
 
@@ -35,24 +50,70 @@ const MODULE_DESCRIPTIONS: Record<Tab, { title: string; subtitle: string }> = {
 };
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("benchmark");
+  // Read URL params once on mount for initial state
+  const urlInit = readUrlState();
+
+  const [tab, setTab] = useState<Tab>((urlInit.tab as Tab) ?? "benchmark");
+  const [disclaimerDismissed, setDisclaimerDismissed] = useState(() =>
+    typeof sessionStorage !== "undefined" && sessionStorage.getItem("disclaimer_dismissed") === "1"
+  );
+  const [copied, setCopied] = useState(false);
+
+  const dismissDisclaimer = () => {
+    sessionStorage.setItem("disclaimer_dismissed", "1");
+    setDisclaimerDismissed(true);
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for browsers without clipboard API
+      const ta = document.createElement("textarea");
+      ta.value = window.location.href;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const [benchmarkCtx, setBenchmarkCtx] = useState({
-    role: "Software Engineer",
-    level: "L5 / Senior",
-    city: "San Francisco, CA",
-    totalComp: 315000,
+    role: urlInit.role ?? "Software Engineer",
+    level: urlInit.level ?? "L5 / Senior",
+    city: urlInit.city ?? "San Francisco, CA",
+    totalComp: (urlInit.salary ?? 210000) + 25000 + 80000,
+    baseSalary: urlInit.salary ?? 210000,
+    state: urlInit.state ?? "CA",
   });
 
   const [takeHomeCtx, setTakeHomeCtx] = useState({
-    grossSalary: 210000,
+    grossSalary: urlInit.salary ?? 210000,
     netTakeHome: 0,
-    state: "CA",
-    retirementRate: 6,
+    state: urlInit.state ?? "CA",
+    retirementRate: urlInit.k401 ?? 6,
   });
 
+  // Keep URL in sync whenever key state changes
+  useEffect(() => {
+    writeUrlState({
+      tab,
+      salary: benchmarkCtx.baseSalary,
+      state: takeHomeCtx.state,
+      k401: takeHomeCtx.retirementRate,
+      role: benchmarkCtx.role,
+      level: benchmarkCtx.level,
+      city: benchmarkCtx.city,
+    });
+  }, [tab, benchmarkCtx.baseSalary, benchmarkCtx.role, benchmarkCtx.level, benchmarkCtx.city,
+      takeHomeCtx.state, takeHomeCtx.retirementRate]);
+
   const handleBenchmarkUpdate = useCallback(
-    (data: { role: string; level: string; city: string; totalComp: number }) => {
+    (data: { role: string; level: string; city: string; totalComp: number; baseSalary: number; state: string }) => {
       setBenchmarkCtx(data);
     },
     []
@@ -81,6 +142,21 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background text-foreground" style={{ fontFamily: "var(--font-sans)" }}>
       {/* MARKER-MAKE-KIT-INVOKED */}
+      {/* Disclaimer banner */}
+      {!disclaimerDismissed && (
+        <div className="bg-muted/60 border-b border-border px-4 py-2.5 flex items-start sm:items-center gap-3">
+          <Info size={14} className="text-muted-foreground shrink-0 mt-0.5 sm:mt-0" />
+          <p className="text-xs text-muted-foreground flex-1 leading-relaxed">{DISCLAIMER}</p>
+          <button
+            onClick={dismissDisclaimer}
+            className="text-muted-foreground hover:text-foreground transition-colors shrink-0 ml-1"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <header className="border-b border-border sticky top-0 z-40 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
@@ -96,18 +172,28 @@ export default function App() {
                 beta
               </span>
             </div>
-            <div className="text-xs text-muted-foreground hidden sm:block">
-              No account required · All calculations local
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground hidden sm:block">
+                No account required · All calculations local
+              </span>
+              <button
+                onClick={copyLink}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors border border-border rounded px-2 py-1"
+                title="Copy shareable link"
+              >
+                {copied ? <Check size={12} className="text-emerald-400" /> : <Link2 size={12} />}
+                <span>{copied ? "Copied!" : "Share"}</span>
+              </button>
             </div>
           </div>
 
-          {/* Tab nav */}
-          <div className="flex gap-0 overflow-x-auto scrollbar-none -mb-px">
+          {/* Tab nav — scrollable on mobile */}
+          <div className="flex gap-0 overflow-x-auto scrollbar-none -mb-px" style={{ WebkitOverflowScrolling: "touch" }}>
             {TABS.map(({ id, label, short }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`shrink-0 px-4 py-3 text-xs border-b-2 transition-colors whitespace-nowrap ${
+                className={`shrink-0 px-3 sm:px-4 py-3 text-xs border-b-2 transition-colors whitespace-nowrap min-h-[44px] ${
                   tab === id
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -130,34 +216,45 @@ export default function App() {
         </div>
 
         {/* Module content */}
-        <div>
-          {tab === "benchmark" && (
-            <BenchmarkModule onUpdate={handleBenchmarkUpdate} />
-          )}
-          {tab === "takehome" && (
-            <TakeHomeModule onUpdate={handleTakeHomeUpdate} />
-          )}
-          {tab === "budget" && (
-            <BudgetModule netTakeHome={takeHomeCtx.netTakeHome} />
-          )}
-          {tab === "offer" && <OfferModule />}
-        </div>
+        <Suspense fallback={<div className="h-48 flex items-center justify-center text-xs text-muted-foreground">Loading…</div>}>
+          <div>
+            {tab === "benchmark" && (
+              <BenchmarkModule onUpdate={handleBenchmarkUpdate} />
+            )}
+            {tab === "takehome" && (
+              <TakeHomeModule
+                onUpdate={handleTakeHomeUpdate}
+                initialGrossSalary={benchmarkCtx.baseSalary}
+                initialState={benchmarkCtx.state}
+              />
+            )}
+            {tab === "budget" && (
+              <BudgetModule netTakeHome={takeHomeCtx.netTakeHome} />
+            )}
+            {tab === "offer" && <OfferModule />}
+          </div>
+        </Suspense>
       </main>
 
       {/* Footer */}
       <footer className="border-t border-border mt-16">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-wrap gap-4 justify-between">
-          <p className="text-xs text-muted-foreground">
-            RoboFinancer uses estimated 2024 tax brackets. Not financial advice.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Market data sourced from Levels.fyi, Glassdoor, and Blind aggregates.
-          </p>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-2">
+          <p className="text-xs text-muted-foreground">{DISCLAIMER}</p>
+          <div className="flex flex-wrap gap-4 justify-between">
+            <p className="text-xs text-muted-foreground">
+              Uses estimated 2024 federal &amp; state tax brackets.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Market data sourced from H1B disclosures, Levels.fyi, and Glassdoor aggregates.
+            </p>
+          </div>
         </div>
       </footer>
 
       {/* AI Assistant */}
-      <AIAssistant context={aiCtx} />
+      <Suspense fallback={null}>
+        <AIAssistant context={aiCtx} />
+      </Suspense>
     </div>
   );
 }

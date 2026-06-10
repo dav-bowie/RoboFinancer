@@ -4,20 +4,32 @@ import { calcTakeHome, STATE_OPTIONS, fmtCurrency } from "../../lib/calculations
 
 interface Props {
   onUpdate: (data: { grossSalary: number; netTakeHome: number; state: string; retirementRate: number }) => void;
+  initialGrossSalary?: number;
+  initialState?: string;
 }
 
 const SLICE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#6366f1", "#10b981"];
 
-export function TakeHomeModule({ onUpdate }: Props) {
-  const [grossSalary, setGrossSalary] = useState(210000);
+export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState }: Props) {
+  const [grossSalary, setGrossSalary] = useState(initialGrossSalary ?? 210000);
   const [filingStatus, setFilingStatus] = useState<"single" | "married">("single");
-  const [state, setState] = useState("CA");
+  const [state, setState] = useState(initialState ?? "CA");
   const [retirementRate, setRetirementRate] = useState(6);
+  const [retirementType, setRetirementType] = useState<"traditional" | "roth">("traditional");
   const [period, setPeriod] = useState<"annual" | "monthly">("annual");
 
+  // Sync when benchmark tab updates salary/state
+  useEffect(() => {
+    if (initialGrossSalary !== undefined) setGrossSalary(initialGrossSalary);
+  }, [initialGrossSalary]);
+
+  useEffect(() => {
+    if (initialState !== undefined) setState(initialState);
+  }, [initialState]);
+
   const breakdown = useMemo(
-    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate),
-    [grossSalary, filingStatus, state, retirementRate]
+    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate, retirementType),
+    [grossSalary, filingStatus, state, retirementRate, retirementType]
   );
 
   useEffect(() => {
@@ -146,6 +158,32 @@ export function TakeHomeModule({ onUpdate }: Props) {
           </div>
         </div>
 
+        <div>
+          <label className="block mb-2 text-xs tracking-widest uppercase text-muted-foreground">
+            401(k) Type
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(["traditional", "roth"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setRetirementType(t)}
+                className={`py-2 px-4 rounded border text-sm transition-colors capitalize ${
+                  retirementType === t
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "traditional" ? "Traditional" : "Roth"}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1.5">
+            {retirementType === "traditional"
+              ? "Pre-tax — reduces taxable income now"
+              : "Post-tax — no tax on qualified withdrawals"}
+          </div>
+        </div>
+
         <div className="rounded border border-border bg-secondary p-4 space-y-2">
           <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">Effective Federal Rate</span>
@@ -212,7 +250,8 @@ export function TakeHomeModule({ onUpdate }: Props) {
             { label: "State Income Tax", value: -breakdown.stateTax, color: "text-orange-400" },
             { label: "Social Security (6.2%)", value: -breakdown.socialSecurity, color: "text-amber-400" },
             { label: "Medicare (1.45%+)", value: -breakdown.medicare, color: "text-amber-400" },
-            { label: "401(k) Pre-Tax", value: -breakdown.retirement401k, color: "text-indigo-400" },
+            { label: retirementType === "roth" ? "Roth 401(k) (post-tax)" : "401(k) Pre-Tax", value: -breakdown.retirement401k, color: "text-indigo-400" },
+            ...(breakdown.caSDI && breakdown.caSDI > 0 ? [{ label: "CA SDI (1.1%)", value: -(breakdown.caSDI), color: "text-orange-400" }] : []),
             { label: "Net Take-Home", value: breakdown.netTakeHome, color: "text-emerald-400" },
           ].map(({ label, value, color }, i, arr) => (
             <div

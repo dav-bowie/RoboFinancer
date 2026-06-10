@@ -1,102 +1,115 @@
 # RoboFinancer
 
-RoboFinancer is an AI-powered compensation clarity tool for tech professionals. It combines real-time tax calculations, market salary benchmarking, budget planning, and side-by-side offer comparison — all running locally in the browser with no account required.
+RoboFinancer is an AI-powered compensation clarity web app for tech professionals. It gives you real after-tax take-home numbers, market salary benchmarking against 95,000+ H1B records, a budget planner, and a side-by-side offer comparison — all running locally in the browser with no account required.
 
-**Live demo:** https://robofinancer.vercel.app
+**Live demo:** https://robo-financer.vercel.app
 
-## Tech stack
+[Add screenshot here]
 
-- React 18 + TypeScript (strict mode)
-- Vite 6
-- Tailwind CSS 4
-- shadcn/ui + Radix UI
-- Recharts
-- React Router 7
-- Vitest (unit tests)
-- Vercel (deployment + serverless API)
+---
 
-## Run locally
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + TypeScript + Vite 6 |
+| Styling | Tailwind CSS 4 + shadcn/ui + Radix UI |
+| Charts | Recharts 2 |
+| Routing | React Router 7 |
+| Data | Supabase (PostgreSQL) — 95,518 H1B salary records |
+| AI | Claude (claude-sonnet-4-6) via Vercel serverless proxy |
+| Tests | Vitest |
+| Deployment | Vercel |
+| Package manager | pnpm |
+
+---
+
+## Run Locally
 
 ```bash
-git clone https://github.com/yourusername/robofinancer.git
-cd robofinancer
+git clone https://github.com/dav-bowie/RoboFinancer
+cd RoboFinancer
 pnpm install
-cp .env.example .env.local
-# Fill in .env.local with your keys (see Environment variables below)
-pnpm dev
+cp .env.example .env
+# Fill in .env values (see Environment Variables below)
+pnpm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-## Environment variables
+---
+
+## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `VITE_SUPABASE_URL` | Optional | Supabase project URL — enables data persistence |
-| `VITE_SUPABASE_ANON_KEY` | Optional | Supabase public anon key |
-| `CLAUDE_API_KEY` | Required for AI | Anthropic API key — powers the AI assistant (server-side only, never prefix with `VITE_`) |
-| `VITE_MAPBOX_TOKEN` | Optional | Mapbox token for map features |
+| `VITE_SUPABASE_URL` | For live H1B data | Supabase project URL — `https://kkfazcwjrctgijewmlke.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | For live H1B data | Supabase public anon key |
+| `CLAUDE_API_KEY` | For AI assistant | Anthropic API key (`sk-ant-…`) — **server-side only, never use `VITE_` prefix** |
+| `VITE_MAPBOX_TOKEN` | Optional | Mapbox public token (`pk.eyJ…`) for map features |
 
-`CLAUDE_API_KEY` must be set in your Vercel project environment variables (not in `.env.local`) so it never reaches the browser.
+Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_MAPBOX_TOKEN` in both your local `.env` and in Vercel project settings → Environment Variables.
 
-## Folder structure
+Set `CLAUDE_API_KEY` **only** in Vercel project settings (not in `.env`) so it never reaches the browser.
 
-```
-src/
-├── app/
-│   ├── App.tsx                      # Root shell, tab routing, shared state
-│   └── components/
-│       ├── BenchmarkModule.tsx      # Salary benchmarking vs. market
-│       ├── TakeHomeModule.tsx       # Gross-to-net tax calculator
-│       ├── BudgetModule.tsx         # 50/30/20 budget planner
-│       ├── OfferModule.tsx          # Side-by-side offer comparison
-│       ├── AIAssistant.tsx          # Floating chat assistant
-│       ├── ui/                      # shadcn/ui primitives (Radix-based)
-│       └── figma/                   # Figma Make helpers
-├── data/
-│   ├── taxBrackets.ts               # 2024 federal bracket data + constants
-│   ├── stateTaxRates.ts             # All 50 states + DC rates
-│   └── budgetRules.ts               # Framework definitions
-├── hooks/
-│   ├── useTaxCalculation.ts         # Stateful wrapper for calcFullBreakdown
-│   ├── useBenchmark.ts              # Market data + percentile hook
-│   └── useAIRecommendation.ts       # AI recommendation fetch hook
-├── lib/
-│   ├── calculations.ts              # Legacy all-in-one module (Figma Make)
-│   └── supabaseClient.ts            # Supabase client stub
-├── styles/
-└── utils/
-    ├── federalTax.ts                # 2024 federal income tax
-    ├── stateTax.ts                  # State income tax (all 50 + DC)
-    ├── taxEngine.ts                 # Full deduction orchestrator
-    ├── budgetFrameworks.ts          # Budget framework logic
-    ├── percentile.ts                # Percentile + verdict helpers
-    └── aiRecommendations.ts         # Claude API client stub
+Without `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, the Benchmark module falls back to static market data.
 
-api/
-└── recommend.ts                     # Vercel serverless AI proxy
+---
 
-tests/
-├── federalTax.test.ts
-├── stateTax.test.ts
-└── taxEngine.test.ts
+## Load H1B Salary Data
 
-docs/
-├── system-design.md
-├── data-model.md
-└── sequences/
-    ├── ai-recommendation-flow.md
-    └── salary-benchmark-flow.md
-
-scripts/
-├── loadH1B.py                       # H-1B wage data loader stub
-└── scraper.py                       # Levels.fyi / Glassdoor scraper stub
+```bash
+cd scripts
+pip install -r requirements.txt
+python3 loadH1B.py
 ```
 
-## Run tests
+This loads FY2025 Q4 H1B wage disclosure records into the `salary_benchmarks` table in Supabase. The table must exist with RLS enabled and a public read policy. Do not modify `LCA_Disclosure_Data_FY2025_Q4.xlsx`.
+
+---
+
+## Run Tests
 
 ```bash
 pnpm test
 ```
 
-Tests cover federal tax brackets, all state tax rates, and the full tax engine breakdown.
+45 tests across 3 suites covering federal tax brackets, all state tax rates, and the full tax engine breakdown.
+
+---
+
+## Folder Structure
+
+```
+src/
+├── app/
+│   ├── App.tsx                     # Root shell, tab routing, shared state, URL encoding
+│   └── components/
+│       ├── BenchmarkModule.tsx     # Salary benchmarking — queries Supabase H1B data
+│       ├── TakeHomeModule.tsx      # Gross-to-net tax calculator (2024 brackets)
+│       ├── BudgetModule.tsx        # 50/30/20 budget planner
+│       ├── OfferModule.tsx         # Side-by-side offer comparison + Teleport CoL API
+│       └── AIAssistant.tsx         # Floating chat widget (Claude via /api/recommend)
+├── lib/
+│   ├── calculations.ts             # Tax math, market data, FICA, SDI
+│   ├── supabaseClient.ts           # Supabase client with null fallback
+│   └── useUrlState.ts              # URL query param encoding/decoding
+
+src/api/
+└── recommend.ts                    # Vercel serverless function — Claude API proxy
+
+scripts/
+├── loadH1B.py                      # H1B wage data loader
+└── requirements.txt
+
+tests/
+├── calculations.test.ts
+├── stateTax.test.ts
+└── taxEngine.test.ts
+```
+
+---
+
+## License
+
+MIT
