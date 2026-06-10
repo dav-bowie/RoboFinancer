@@ -40,8 +40,11 @@ export default async function handler(req: any, res: any) {
   const body = req.body || {};
   const { gross_salary, state, take_home, expenses, framework, market_percentile, question } = body;
 
-  const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Missing CLAUDE_API_KEY env var' });
+
+  const questionText = String(question || '').trim();
+  if (!questionText) return res.status(400).json({ error: 'question field is required' });
 
   const contextLines: string[] = [];
   if (gross_salary)      contextLines.push(`Gross salary: $${Number(gross_salary).toLocaleString()}/yr`);
@@ -51,7 +54,7 @@ export default async function handler(req: any, res: any) {
   if (expenses)          contextLines.push(`Monthly expenses: $${Number(expenses).toLocaleString()}`);
   if (framework)         contextLines.push(`Budget framework: ${framework}`);
 
-  const prompt = `USER FINANCIAL CONTEXT:\n${contextLines.join('\n') || '(no context provided)'}\n\nQUESTION:\n${String(question || '').trim()}`;
+  const prompt = `USER FINANCIAL CONTEXT:\n${contextLines.join('\n') || '(no context provided)'}\n\nQUESTION:\n${questionText}`;
 
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -62,7 +65,7 @@ export default async function handler(req: any, res: any) {
         'anthropic-version': '2023-06-01',
       },
         body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-3-5-sonnet-20241022',
         max_tokens: 400,
         system: `You are RoboFinancer's compensation clarity advisor — not a financial advisor.
 
@@ -83,7 +86,13 @@ Rules you must follow:
     if (!resp.ok) {
       const txt = await resp.text();
       console.error('Anthropic API error', resp.status, txt);
-      return res.status(502).json({ error: 'Upstream AI API error', details: txt });
+      // Surface the model + status so misconfiguration is obvious in browser console
+      return res.status(502).json({
+        error: 'Upstream AI API error',
+        status: resp.status,
+        details: txt,
+        model: 'claude-3-5-sonnet-20241022',
+      });
     }
 
     const data = await resp.json();

@@ -23,6 +23,13 @@ function generateResponse(input: string, ctx: Context): string {
   const q = input.toLowerCase();
   const monthlyTakeHome = ctx.netTakeHome / 12;
 
+  // Greetings — friendly redirect
+  if (
+    q.match(/^(hi|hello|hey|howdy|sup|what's up|how are you|how r u|greetings|good morning|good afternoon|good evening)\b/)
+  ) {
+    return `Hi! I'm RoboFinancer's AI advisor — I'm built for comp and finance questions, not small talk 😄\n\nI can see you're a ${ctx.role || "tech professional"} in ${ctx.city || "your city"} earning ${ctx.totalComp > 0 ? fmtCurrency(ctx.totalComp) : "a comp you haven't entered yet"} in total comp.\n\nHere's what I can help with:\n• **Salary negotiation** — talking points, counter-offer strategy\n• **Tax breakdowns** — withholding, W-4, state differences\n• **Budgeting** — 50/30/20, savings rate, where to cut\n• **Offer evaluation** — true after-tax, cost-of-living comparison\n• **Equity & retirement** — RSUs, 401(k), Roth IRA strategy\n\nWhat would you like to dig into?`;
+  }
+
   if (q.includes("negotiat") || q.includes("raise") || q.includes("counter")) {
     const gap = ctx.totalComp > 0 ? ctx.totalComp * 0.15 : 30000;
     return `Based on your ${ctx.level} ${ctx.role} role in ${ctx.city}, here are three negotiation talking points:\n\n1. **Anchor to market data.** Cite Levels.fyi and Glassdoor — reference a range of ${fmtCurrency(

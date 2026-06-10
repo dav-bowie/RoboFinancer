@@ -215,23 +215,23 @@ export default function App() {
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>
 
-        {/* Module content */}
+        {/* Module content — always mounted so local state is never lost on tab switch */}
         <Suspense fallback={<div className="h-48 flex items-center justify-center text-xs text-muted-foreground">Loading…</div>}>
-          <div>
-            {tab === "benchmark" && (
-              <BenchmarkModule onUpdate={handleBenchmarkUpdate} />
-            )}
-            {tab === "takehome" && (
-              <TakeHomeModule
-                onUpdate={handleTakeHomeUpdate}
-                initialGrossSalary={benchmarkCtx.baseSalary}
-                initialState={benchmarkCtx.state}
-              />
-            )}
-            {tab === "budget" && (
-              <BudgetModule netTakeHome={takeHomeCtx.netTakeHome} />
-            )}
-            {tab === "offer" && <OfferModule />}
+          <div className={tab === "benchmark" ? "" : "hidden"}>
+            <BenchmarkModule onUpdate={handleBenchmarkUpdate} />
+          </div>
+          <div className={tab === "takehome" ? "" : "hidden"}>
+            <TakeHomeModule
+              onUpdate={handleTakeHomeUpdate}
+              initialGrossSalary={benchmarkCtx.baseSalary}
+              initialState={benchmarkCtx.state}
+            />
+          </div>
+          <div className={tab === "budget" ? "" : "hidden"}>
+            <BudgetModule netTakeHome={takeHomeCtx.netTakeHome} />
+          </div>
+          <div className={tab === "offer" ? "" : "hidden"}>
+            <OfferModule />
           </div>
         </Suspense>
       </main>
