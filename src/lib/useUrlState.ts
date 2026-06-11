@@ -44,20 +44,26 @@ export function readUrlState(): Partial<UrlState> {
   const state = p.get("state");
   if (state && /^[A-Z]{2}$/.test(state)) out.state = state;
 
-  const k401 = Number(p.get("k401"));
-  if (!isNaN(k401)) out.k401 = clamp(k401, 0, 23);
+  // Only honor k401 when the param is actually present — Number(null) is 0,
+  // which would otherwise clobber the 6% default for visitors with no k401 param.
+  const k401Raw = p.get("k401");
+  if (k401Raw !== null && k401Raw !== "") {
+    const k401 = Number(k401Raw);
+    if (!isNaN(k401)) out.k401 = clamp(k401, 0, 23);
+  }
 
   const filing = p.get("filing");
   if (filing === "single" || filing === "married") out.filing = filing;
 
+  // URLSearchParams.get() already percent-decodes; no manual decode needed.
   const role = p.get("role");
-  if (role) out.role = decodeURIComponent(role);
+  if (role) out.role = role;
 
   const level = p.get("level");
-  if (level) out.level = decodeURIComponent(level);
+  if (level) out.level = level;
 
   const city = p.get("city");
-  if (city) out.city = decodeURIComponent(city);
+  if (city) out.city = city;
 
   return out;
 }
@@ -75,9 +81,11 @@ export function writeUrlState(s: Partial<UrlState>) {
   set("state", s.state, DEFAULTS.state);
   set("k401", s.k401, DEFAULTS.k401);
   set("filing", s.filing, DEFAULTS.filing);
-  if (s.role && s.role !== DEFAULTS.role) p.set("role", encodeURIComponent(s.role));
-  if (s.level && s.level !== DEFAULTS.level) p.set("level", encodeURIComponent(s.level));
-  if (s.city && s.city !== DEFAULTS.city) p.set("city", encodeURIComponent(s.city));
+  // URLSearchParams.set() + toString() percent-encode values automatically;
+  // encoding here too would double-encode (e.g. spaces -> %2520).
+  if (s.role && s.role !== DEFAULTS.role) p.set("role", s.role);
+  if (s.level && s.level !== DEFAULTS.level) p.set("level", s.level);
+  if (s.city && s.city !== DEFAULTS.city) p.set("city", s.city);
 
   const qs = p.toString();
   const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;

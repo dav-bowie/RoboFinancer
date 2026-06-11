@@ -30,20 +30,32 @@ interface Props {
   }) => void;
   initialGrossSalary?: number;
   initialState?: string;
+  initialFilingStatus?: "single" | "married";
+  initialRetirementRate?: number;
   budgetExpenses?: BudgetExpenses;
 }
 
-const SLICE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#6366f1", "#10b981"];
+// Distinct slice colors, one per category in the gross-salary breakdown.
+const CHART_COLORS = {
+  federal: "#ef4444", // red
+  state: "#f97316", // orange
+  fica: "#f59e0b", // amber
+  k401: "#6366f1", // indigo
+  hsa: "#0ea5e9", // sky (matches HSA slider)
+  caSDI: "#fb7185", // rose
+  rothIRA: "#a78bfa", // violet
+  takeHome: "#10b981", // emerald
+};
 
 const IRS_401K_LIMIT_2026 = 24500;
 const IRS_ROTH_IRA_LIMIT_2026 = 7500; // under age 50; $8,500 if 50+
 const IRS_HSA_LIMIT_2026_SINGLE = 4300; // family limit is $8,550
 
-export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, budgetExpenses }: Props) {
+export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, initialFilingStatus, initialRetirementRate, budgetExpenses }: Props) {
   const [grossSalary, setGrossSalary] = useState(initialGrossSalary ?? 210000);
-  const [filingStatus, setFilingStatus] = useState<"single" | "married">("single");
+  const [filingStatus, setFilingStatus] = useState<"single" | "married">(initialFilingStatus ?? "single");
   const [state, setState] = useState(initialState ?? "CA");
-  const [retirementRate, setRetirementRate] = useState(6);
+  const [retirementRate, setRetirementRate] = useState(initialRetirementRate ?? 6);
   const [retirementType, setRetirementType] = useState<"traditional" | "roth">("traditional");
   const [hsaContrib, setHsaContrib] = useState(0);
   const [rothIraContrib, setRothIraContrib] = useState(0);
@@ -89,13 +101,27 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
   const div = period === "monthly" ? 12 : 1;
   const label = period === "monthly" ? "/mo" : "/yr";
 
+  // Full decomposition of gross salary. These segments sum to gross:
+  //   gross = federal + state + FICA + 401(k) + HSA + CA SDI + Roth IRA + spendable take-home
+  // so each slice's share of gross is value / gross. Roth IRA is post-tax savings
+  // drawn from take-home, so the "Take-Home" slice shows the spendable remainder
+  // (matching the center label). Zero-value categories are omitted.
+  const spendableTakeHome = breakdown.netTakeHome - rothIraContrib;
   const chartData = [
-    { name: "Federal Tax", value: breakdown.federalTax, color: SLICE_COLORS[0] },
-    { name: "State Tax", value: breakdown.stateTax, color: SLICE_COLORS[1] },
-    { name: "FICA", value: breakdown.socialSecurity + breakdown.medicare, color: SLICE_COLORS[2] },
-    { name: "401(k)", value: breakdown.retirement401k, color: SLICE_COLORS[3] },
-    { name: "Take-Home", value: breakdown.netTakeHome, color: SLICE_COLORS[4] },
-  ].filter((d) => d.value > 0);
+    { name: "Federal Tax", value: breakdown.federalTax, color: CHART_COLORS.federal },
+    { name: "State Tax", value: breakdown.stateTax, color: CHART_COLORS.state },
+    { name: "FICA", value: breakdown.socialSecurity + breakdown.medicare, color: CHART_COLORS.fica },
+    { name: "401(k)", value: breakdown.retirement401k, color: CHART_COLORS.k401 },
+    { name: "HSA", value: hsaContrib, color: CHART_COLORS.hsa },
+    { name: "CA SDI", value: breakdown.caSDI ?? 0, color: CHART_COLORS.caSDI },
+    { name: "Roth IRA", value: rothIraContrib, color: CHART_COLORS.rothIRA },
+    { name: "Take-Home", value: spendableTakeHome, color: CHART_COLORS.takeHome },
+  ]
+    .filter((d) => d.value > 0)
+    .map((d) => ({
+      ...d,
+      pct: breakdown.gross > 0 ? Math.round((d.value / breakdown.gross) * 100) : 0,
+    }));
 
   const effectiveFederal =
     breakdown.gross > 0 ? ((breakdown.federalTax / breakdown.gross) * 100).toFixed(1) : "0";
@@ -173,10 +199,15 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
+      const p = payload[0];
+      const pct = p.payload?.pct;
       return (
         <div className="bg-popover border border-border rounded px-3 py-2 text-xs">
-          <div className="text-foreground font-medium">{payload[0].name}</div>
-          <div className="font-mono text-primary">{fmtCurrency(payload[0].value)}</div>
+          <div className="text-foreground font-medium">{p.name}</div>
+          <div className="font-mono text-primary">
+            {fmtCurrency(p.value)}
+            {pct != null ? <span className="text-muted-foreground"> · {pct}% of gross</span> : null}
+          </div>
         </div>
       );
     }
@@ -517,12 +548,13 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
           ))}
         </div>
 
-        {/* Legend */}
-        <div className="flex flex-wrap gap-3">
+        {/* Legend — each category shows its share of gross salary */}
+        <div className="flex flex-wrap gap-x-3 gap-y-1.5">
           {chartData.map((d) => (
             <div key={d.name} className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full" style={{ background: d.color }} />
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
               <span className="text-xs text-muted-foreground">{d.name}</span>
+              <span className="text-xs font-mono text-foreground">{d.pct}%</span>
             </div>
           ))}
         </div>

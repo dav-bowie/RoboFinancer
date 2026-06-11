@@ -134,6 +134,16 @@
     @apply bg-background text-foreground;
   }
 
+  /* Utility to hide the scrollbar on horizontally scrollable elements (e.g. the
+     mobile tab nav). The element still scrolls; only the scrollbar chrome is hidden. */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /**
   * Default typography styles for HTML elements (h1-h4, p, label, button, input).
   * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.

@@ -111,7 +111,7 @@ export function BudgetModule({ netTakeHome, expenses, onExpensesUpdate }: Props)
     }
     return {
       type: "success",
-      text: `You're tracking well against the ${framework.label} framework with a savings rate of ${savingsRate.toFixed(1)}%. Consider maxing your 401(k) (${fmtCurrency(23000)} IRS limit) and HSA if eligible.`,
+      text: `You're tracking well against the ${framework.label} framework with a savings rate of ${savingsRate.toFixed(1)}%. Consider maxing your 401(k) (${fmtCurrency(24500)} IRS 2026 limit) and HSA if eligible.`,
     };
   }, [surplus, actualSpending, allocated, framework, monthlyIncome]);
 

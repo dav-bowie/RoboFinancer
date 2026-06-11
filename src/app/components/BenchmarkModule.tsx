@@ -21,13 +21,17 @@ function ordinalSuffix(n: number): string {
 
 interface Props {
   onUpdate: (data: { role: string; level: string; city: string; totalComp: number; baseSalary: number; state: string }) => void;
+  initialRole?: string;
+  initialLevel?: string;
+  initialCity?: string;
+  initialBaseSalary?: number;
 }
 
-export function BenchmarkModule({ onUpdate }: Props) {
-  const [role, setRole] = useState("Software Engineer");
-  const [level, setLevel] = useState("L5 / Senior");
-  const [city, setCity] = useState("San Francisco, CA");
-  const [baseSalary, setBaseSalary] = useState(210000);
+export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCity, initialBaseSalary }: Props) {
+  const [role, setRole] = useState(initialRole ?? "Software Engineer");
+  const [level, setLevel] = useState(initialLevel ?? "L5 / Senior");
+  const [city, setCity] = useState(initialCity ?? "San Francisco, CA");
+  const [baseSalary, setBaseSalary] = useState(initialBaseSalary ?? 210000);
   const [bonus, setBonus] = useState(25000);
   const [equity, setEquity] = useState(80000);
 
