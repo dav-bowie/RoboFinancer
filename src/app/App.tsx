@@ -97,7 +97,7 @@ export default function App() {
     netTakeHome: 0,
     state: urlInit.state ?? "CA",
     retirementRate: urlInit.k401 ?? 6,
-    filingStatus: "single" as "single" | "married",
+    filingStatus: (urlInit.filing === "married" ? "married" : "single") as "single" | "married",
     k401Type: "traditional" as "traditional" | "roth",
     k401Amount: 0,
     employerMatch: 0,
@@ -124,12 +124,13 @@ export default function App() {
       salary: benchmarkCtx.baseSalary,
       state: takeHomeCtx.state,
       k401: takeHomeCtx.retirementRate,
+      filing: takeHomeCtx.filingStatus,
       role: benchmarkCtx.role,
       level: benchmarkCtx.level,
       city: benchmarkCtx.city,
     });
   }, [tab, benchmarkCtx.baseSalary, benchmarkCtx.role, benchmarkCtx.level, benchmarkCtx.city,
-      takeHomeCtx.state, takeHomeCtx.retirementRate]);
+      takeHomeCtx.state, takeHomeCtx.retirementRate, takeHomeCtx.filingStatus]);
 
   const handleBenchmarkUpdate = useCallback(
     (data: { role: string; level: string; city: string; totalComp: number; baseSalary: number; state: string }) => {
@@ -191,7 +192,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground" style={{ fontFamily: "var(--font-sans)" }}>
-      {/* MARKER-MAKE-KIT-INVOKED */}
       {/* Disclaimer banner */}
       {!disclaimerDismissed && (
         <div className="bg-muted/60 border-b border-border px-4 py-2.5 flex items-start sm:items-center gap-3">
@@ -268,13 +268,21 @@ export default function App() {
         {/* Module content — always mounted so local state is never lost on tab switch */}
         <Suspense fallback={<div className="h-48 flex items-center justify-center text-xs text-muted-foreground">Loading…</div>}>
           <div className={tab === "benchmark" ? "" : "hidden"}>
-            <BenchmarkModule onUpdate={handleBenchmarkUpdate} />
+            <BenchmarkModule
+              onUpdate={handleBenchmarkUpdate}
+              initialRole={urlInit.role}
+              initialLevel={urlInit.level}
+              initialCity={urlInit.city}
+              initialBaseSalary={urlInit.salary}
+            />
           </div>
           <div className={tab === "takehome" ? "" : "hidden"}>
             <TakeHomeModule
               onUpdate={handleTakeHomeUpdate}
               initialGrossSalary={benchmarkCtx.baseSalary}
               initialState={benchmarkCtx.state}
+              initialFilingStatus={urlInit.filing === "married" ? "married" : "single"}
+              initialRetirementRate={urlInit.k401}
               budgetExpenses={budgetExpenses}
             />
           </div>
