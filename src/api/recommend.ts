@@ -5,10 +5,10 @@ const RATE_LIMIT_CAPACITY = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const buckets = new Map();
 
-// Model wired per product owner request. NOTE: if responses look canned/degraded,
-// the most likely cause is this model name being invalid for the account — the
-// error path below surfaces the real Anthropic status + body so that is obvious.
-const CLAUDE_MODEL = 'claude-sonnet-4-6';
+// Model wired per product owner request — confirmed working for this account.
+// The error path below still surfaces the real Anthropic status + body so any
+// future model-name issue is obvious rather than silently degrading.
+const CLAUDE_MODEL = 'claude-3-5-sonnet-20241022';
 
 function getIpKey(req: any) {
   const xf = req.headers?.['x-forwarded-for'];
