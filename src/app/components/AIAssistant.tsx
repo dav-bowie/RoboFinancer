@@ -47,13 +47,14 @@ const PROD_ERROR_MSG =
 // it's treated as off-topic and answered instantly without an API call.
 const TOPIC_SIGNALS = [
   "salary", "comp", "compensation", "pay", "paycheck", "income", "wage", "earn",
+  "base", "make", "made", "total comp", "tc", "annual", "hourly", "rate",
   "tax", "taxes", "withhold", "w-4", "w4", "refund", "deduction", "bracket",
   "marginal", "effective", "fica", "medicare", "social security",
   "401k", "401(k)", "ira", "roth", "traditional", "retirement", "pension",
   "invest", "saving", "save", "savings", "budget", "spend", "expense", "rent",
   "offer", "negotiat", "raise", "counter", "promotion", "career", "job",
   "equity", "rsu", "stock", "vesting", "vest", "bonus", "options", "grant",
-  "take-home", "take home", "net", "gross", "percentile", "market", "fair",
+  "take-home", "take home", "takehome", "net", "gross", "percentile", "market", "fair",
   "cost of living", "col", "relocat", "city", "state", "hsa", "match",
   "money", "financ", "dollar", "$", "afford", "wealth", "fund", "portfolio",
 ];
@@ -279,9 +280,11 @@ export function AIAssistant({ context }: { context: Context }) {
 
   const hasUserMessage = messages.some((m) => m.role === "user");
   const exhausted = apiCalls >= SESSION_LIMIT;
-  // Quick actions show before the first message AND whenever the session is
-  // exhausted, so a free instant-answer path always remains available.
-  const showQuickActions = !hasUserMessage || exhausted;
+  // Quick actions are ALWAYS available: they assemble answers client-side with
+  // no API call, so there's no reason to ever hide them. Previously they were
+  // hidden once the user sent a message, which made them unreachable for the
+  // rest of the session and looked like the buttons "did nothing".
+  const showQuickActions = true;
 
   useEffect(() => {
     if (open && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
@@ -292,10 +295,26 @@ export function AIAssistant({ context }: { context: Context }) {
   }, [open]);
 
   const runQuickAction = (qa: QuickAction) => {
-    const answer = qa.build(context);
+    // Build the label and answer defensively — a quick action must never be a
+    // no-op. If the context is missing fields, surface a helpful message
+    // instead of letting an exception swallow the click.
+    let label: string;
+    try {
+      label = qa.label(context);
+    } catch {
+      label = "Quick question";
+    }
+    let answer: string;
+    try {
+      answer = qa.build(context);
+    } catch (err) {
+      console.error("Quick action failed:", qa.id, err);
+      answer =
+        "I couldn't put that together from your current numbers. Add your salary, state, and 401(k) details in the tabs above, then try again.";
+    }
     setMessages((m) => [
       ...m,
-      { role: "user", content: qa.label(context) },
+      { role: "user", content: label },
       { role: "assistant", content: answer },
     ]);
   };
