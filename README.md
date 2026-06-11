@@ -2,7 +2,7 @@
 
 RoboFinancer is an AI-powered compensation clarity tool for tech professionals. It combines real-time tax calculations, market salary benchmarking, budget planning, and side-by-side offer comparison — all running locally in the browser with no account required.
 
-**Live demo:** https://robofinancer.vercel.app
+**Live demo:** https://robo-financer.vercel.app
 
 ## Tech stack
 
