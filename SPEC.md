@@ -43,7 +43,7 @@ VITE_MAPBOX_TOKEN=your_mapbox_access_token
 ### README.md
 Full README with:
 - What RoboFinancer is (2 sentences)
-- Live demo link (placeholder: https://robofinancer.vercel.app)
+- Live demo link (placeholder: https://robo-financer.vercel.app)
 - Tech stack list
 - How to run locally (exact pnpm commands)
 - Environment variables explanation
