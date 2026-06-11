@@ -15,6 +15,7 @@ export interface ReportData {
   state: string;
 
   trad401k: number;
+  hsa: number;
   employerMatch: number;
   rothIRA: number;
 
@@ -185,6 +186,7 @@ export function generateFinancialReport(data: ReportData): void {
   const taxRows: TaxRow[] = [
     { label: 'Gross salary',                                         value: fmt(data.grossSalary) },
     { label: 'Traditional 401k contribution',                        value: data.trad401k > 0 ? `-${fmt(data.trad401k)}` : '—', color: data.trad401k > 0 ? C.coral : C.muted },
+    ...(data.hsa > 0 ? [{ label: 'HSA contribution', value: `-${fmt(data.hsa)}`, color: C.teal }] : []),
     { label: 'Federal AGI',                                          value: fmt(data.federalAGI), bg: C.lightGray, color: C.muted, indent: true },
     { label: 'Standard deduction',                                   value: `-${fmt(data.standardDeduction)}`, color: C.coral },
     { label: 'Federal taxable income',                               value: fmt(data.federalTaxableIncome), bg: C.lightGray, color: C.muted, indent: true },
