@@ -10,7 +10,7 @@ import {
 import { supabase } from "../../lib/supabaseClient";
 
 interface Props {
-  onUpdate: (data: { role: string; level: string; city: string; totalComp: number }) => void;
+  onUpdate: (data: { role: string; level: string; city: string; totalComp: number; baseSalary: number; state: string }) => void;
 }
 
 export function BenchmarkModule({ onUpdate }: Props) {
@@ -99,8 +99,8 @@ export function BenchmarkModule({ onUpdate }: Props) {
   };
 
   useEffect(() => {
-    onUpdate({ role, level, city, totalComp });
-  }, [role, level, city, totalComp]);
+    onUpdate({ role, level, city, totalComp, baseSalary, state: locationState });
+  }, [role, level, city, totalComp, baseSalary, locationState]);
 
   const actualPercentile = percentile !== null ? percentile : fallbackMarketData ? getPercentile(totalComp, fallbackMarketData) : null;
 
@@ -129,7 +129,7 @@ export function BenchmarkModule({ onUpdate }: Props) {
   const markerPct = actualPercentile !== null ? Math.min(98, Math.max(2, actualPercentile)) : 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
       {/* Inputs */}
       <div className="space-y-5">
         <div>
@@ -247,7 +247,7 @@ export function BenchmarkModule({ onUpdate }: Props) {
               </div>
               <div className="flex items-baseline gap-3 mb-1">
                 <span className={`font-mono text-4xl font-medium ${percentileColor}`}>
-                  {percentile}
+                  {actualPercentile}
                   <span className="text-xl">th</span>
                 </span>
                 <span className="text-sm text-muted-foreground">percentile</span>
@@ -303,7 +303,7 @@ export function BenchmarkModule({ onUpdate }: Props) {
             </div>
 
             {/* Negotiation insight */}
-            {percentile !== null && percentile < 50 && (
+            {actualPercentile !== null && actualPercentile < 50 && (
               <div className="rounded border border-amber-500/20 bg-amber-500/5 p-4">
                 <div className="text-xs text-amber-400 mb-2 uppercase tracking-widest">Negotiation Range</div>
                 <p className="text-sm text-foreground">
@@ -318,7 +318,7 @@ export function BenchmarkModule({ onUpdate }: Props) {
                 </p>
               </div>
             )}
-            {percentile !== null && percentile >= 75 && (
+            {actualPercentile !== null && actualPercentile >= 75 && (
               <div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-4">
                 <div className="text-xs text-emerald-400 mb-2 uppercase tracking-widest">Market Read</div>
                 <p className="text-sm text-foreground">

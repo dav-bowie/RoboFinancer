@@ -4,20 +4,36 @@ import { calcTakeHome, STATE_OPTIONS, fmtCurrency } from "../../lib/calculations
 
 interface Props {
   onUpdate: (data: { grossSalary: number; netTakeHome: number; state: string; retirementRate: number }) => void;
+  initialGrossSalary?: number;
+  initialState?: string;
 }
 
 const SLICE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#6366f1", "#10b981"];
 
-export function TakeHomeModule({ onUpdate }: Props) {
-  const [grossSalary, setGrossSalary] = useState(210000);
+const IRS_401K_LIMIT_2026 = 24500;
+const IRS_ROTH_IRA_LIMIT_2026 = 7500; // under age 50; $8,500 if 50+
+
+export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState }: Props) {
+  const [grossSalary, setGrossSalary] = useState(initialGrossSalary ?? 210000);
   const [filingStatus, setFilingStatus] = useState<"single" | "married">("single");
-  const [state, setState] = useState("CA");
+  const [state, setState] = useState(initialState ?? "CA");
   const [retirementRate, setRetirementRate] = useState(6);
+  const [retirementType, setRetirementType] = useState<"traditional" | "roth">("traditional");
+  const [rothIraContrib, setRothIraContrib] = useState(0);
   const [period, setPeriod] = useState<"annual" | "monthly">("annual");
 
+  // Sync when benchmark tab updates salary/state
+  useEffect(() => {
+    if (initialGrossSalary !== undefined) setGrossSalary(initialGrossSalary);
+  }, [initialGrossSalary]);
+
+  useEffect(() => {
+    if (initialState !== undefined) setState(initialState);
+  }, [initialState]);
+
   const breakdown = useMemo(
-    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate),
-    [grossSalary, filingStatus, state, retirementRate]
+    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate, retirementType),
+    [grossSalary, filingStatus, state, retirementRate, retirementType]
   );
 
   useEffect(() => {
@@ -128,7 +144,12 @@ export function TakeHomeModule({ onUpdate }: Props) {
             <label className="text-xs tracking-widest uppercase text-muted-foreground">
               401(k) Contribution
             </label>
-            <span className="font-mono text-sm text-foreground">{retirementRate}%</span>
+            <span className="font-mono text-sm text-foreground">
+              {retirementRate}%
+              <span className="text-muted-foreground ml-1 font-normal">
+                ({fmtCurrency(Math.min(grossSalary * (retirementRate / 100), IRS_401K_LIMIT_2026))}/yr)
+              </span>
+            </span>
           </div>
           <input
             type="range"
@@ -142,7 +163,59 @@ export function TakeHomeModule({ onUpdate }: Props) {
           />
           <div className="flex justify-between text-xs text-muted-foreground mt-1">
             <span>0%</span>
-            <span>IRS max 23%</span>
+            <span>IRS 2026 max {fmtCurrency(IRS_401K_LIMIT_2026)}/yr</span>
+          </div>
+        </div>
+
+        <div>
+          <label className="block mb-2 text-xs tracking-widest uppercase text-muted-foreground">
+            401(k) Type
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(["traditional", "roth"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setRetirementType(t)}
+                className={`py-2 px-4 rounded border text-sm transition-colors capitalize ${
+                  retirementType === t
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "traditional" ? "Traditional" : "Roth"}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1.5">
+            {retirementType === "traditional"
+              ? "Pre-tax — reduces taxable income now"
+              : "Post-tax — no tax on qualified withdrawals"}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between mb-1.5">
+            <label className="text-xs tracking-widest uppercase text-muted-foreground">
+              Roth IRA Contribution
+            </label>
+            <span className="font-mono text-sm text-foreground">{fmtCurrency(rothIraContrib)}/yr</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={IRS_ROTH_IRA_LIMIT_2026}
+            step={500}
+            value={rothIraContrib}
+            onChange={(e) => setRothIraContrib(Number(e.target.value))}
+            className="w-full h-1.5 appearance-none rounded-full cursor-pointer"
+            style={{ accentColor: "#10b981" }}
+          />
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>$0</span>
+            <span>IRS 2026 limit {fmtCurrency(IRS_ROTH_IRA_LIMIT_2026)}/yr</span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Post-tax savings — does not affect taxable income
           </div>
         </div>
 
@@ -197,9 +270,11 @@ export function TakeHomeModule({ onUpdate }: Props) {
             </PieChart>
           </ResponsiveContainer>
           <div className="text-center -mt-2">
-            <div className="text-xs text-muted-foreground">Take-Home</div>
+            <div className="text-xs text-muted-foreground">
+              {rothIraContrib > 0 ? "Spendable Take-Home" : "Take-Home"}
+            </div>
             <div className="font-mono text-2xl text-primary">
-              {fmtCurrency(breakdown.netTakeHome / div)}
+              {fmtCurrency((breakdown.netTakeHome - rothIraContrib) / div)}
             </div>
             <div className="text-xs text-muted-foreground">{label}</div>
           </div>
@@ -212,8 +287,10 @@ export function TakeHomeModule({ onUpdate }: Props) {
             { label: "State Income Tax", value: -breakdown.stateTax, color: "text-orange-400" },
             { label: "Social Security (6.2%)", value: -breakdown.socialSecurity, color: "text-amber-400" },
             { label: "Medicare (1.45%+)", value: -breakdown.medicare, color: "text-amber-400" },
-            { label: "401(k) Pre-Tax", value: -breakdown.retirement401k, color: "text-indigo-400" },
-            { label: "Net Take-Home", value: breakdown.netTakeHome, color: "text-emerald-400" },
+            { label: retirementType === "roth" ? "Roth 401(k) (post-tax)" : "401(k) Pre-Tax", value: -breakdown.retirement401k, color: "text-indigo-400" },
+            ...(breakdown.caSDI && breakdown.caSDI > 0 ? [{ label: "CA SDI (1.1%)", value: -(breakdown.caSDI), color: "text-orange-400" }] : []),
+            ...(rothIraContrib > 0 ? [{ label: "Roth IRA (post-tax savings)", value: -rothIraContrib, color: "text-emerald-600" }] : []),
+            { label: "Spendable Take-Home", value: breakdown.netTakeHome - rothIraContrib, color: "text-emerald-400" },
           ].map(({ label, value, color }, i, arr) => (
             <div
               key={label}

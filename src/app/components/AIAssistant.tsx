@@ -23,6 +23,13 @@ function generateResponse(input: string, ctx: Context): string {
   const q = input.toLowerCase();
   const monthlyTakeHome = ctx.netTakeHome / 12;
 
+  // Greetings — friendly redirect
+  if (
+    q.match(/^(hi|hello|hey|howdy|sup|what's up|how are you|how r u|greetings|good morning|good afternoon|good evening)\b/)
+  ) {
+    return `Hi! I'm RoboFinancer's AI advisor — I'm built for comp and finance questions, not small talk 😄\n\nI can see you're a ${ctx.role || "tech professional"} in ${ctx.city || "your city"} earning ${ctx.totalComp > 0 ? fmtCurrency(ctx.totalComp) : "a comp you haven't entered yet"} in total comp.\n\nHere's what I can help with:\n• **Salary negotiation** — talking points, counter-offer strategy\n• **Tax breakdowns** — withholding, W-4, state differences\n• **Budgeting** — 50/30/20, savings rate, where to cut\n• **Offer evaluation** — true after-tax, cost-of-living comparison\n• **Equity & retirement** — RSUs, 401(k), Roth IRA strategy\n\nWhat would you like to dig into?`;
+  }
+
   if (q.includes("negotiat") || q.includes("raise") || q.includes("counter")) {
     const gap = ctx.totalComp > 0 ? ctx.totalComp * 0.15 : 30000;
     return `Based on your ${ctx.level} ${ctx.role} role in ${ctx.city}, here are three negotiation talking points:\n\n1. **Anchor to market data.** Cite Levels.fyi and Glassdoor — reference a range of ${fmtCurrency(
@@ -172,14 +179,14 @@ export function AIAssistant({ context }: { context: Context }) {
   return (
     <>
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-50"
+        onClick={() => setOpen((v: boolean) => !v)}
+        className="fixed bottom-6 right-4 sm:right-6 w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-50"
       >
         {open ? <ChevronDown size={20} /> : <MessageSquare size={20} />}
       </button>
 
       {open && (
-        <div className="fixed bottom-20 right-6 w-80 sm:w-96 h-[520px] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
+        <div className="fixed bottom-20 right-2 left-2 sm:left-auto sm:right-6 sm:w-96 h-[min(520px,calc(100dvh-88px))] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Bot size={16} className="text-primary" />

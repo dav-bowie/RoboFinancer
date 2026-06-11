@@ -134,8 +134,8 @@ export function calcTakeHome(
   retirementType: 'traditional' | 'roth' = 'traditional'
 ): TaxBreakdown {
   const stdDeduction = filingStatus === 'married' ? 29200 : 14600;
-  // 401(k) contribution amount (cap at IRS 2024 elective deferral limit)
-  const contribution401k = Math.min(gross * (retirementRate / 100), 23000);
+  // 401(k) contribution amount (cap at IRS 2026 elective deferral limit)
+  const contribution401k = Math.min(gross * (retirementRate / 100), 24500);
 
   // Roth contributions are post-tax and should NOT reduce taxable income.
   // Only traditional (pre-tax) 401k reduces federal/state taxable income.
