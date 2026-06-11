@@ -304,6 +304,14 @@ export function getPercentile(totalComp: number, marketData: MarketData): number
   }
 }
 
+export function getMarginalBracket(taxableIncome: number, filingStatus: 'single' | 'married'): string {
+  const brackets = filingStatus === 'married' ? FEDERAL_BRACKETS_MARRIED_2024 : FEDERAL_BRACKETS_SINGLE_2024;
+  for (const { limit, rate } of brackets) {
+    if (taxableIncome <= limit) return `${(rate * 100).toFixed(0)}%`;
+  }
+  return '37%';
+}
+
 export const ROLES = Object.keys(BASE_MARKET_DATA);
 
 export const LEVELS_BY_ROLE: Record<string, string[]> = Object.fromEntries(

@@ -98,6 +98,14 @@ export default function App() {
     retirementRate: urlInit.k401 ?? 6,
   });
 
+  // Shared expense state — fed into BudgetModule (display) and TakeHomeModule (PDF export)
+  const [budgetExpenses, setBudgetExpenses] = useState({
+    housing: 3200,
+    food: 800,
+    transport: 400,
+    otherFixed: 0,
+  });
+
   // Keep URL in sync whenever key state changes
   useEffect(() => {
     writeUrlState({
@@ -225,10 +233,15 @@ export default function App() {
               onUpdate={handleTakeHomeUpdate}
               initialGrossSalary={benchmarkCtx.baseSalary}
               initialState={benchmarkCtx.state}
+              budgetExpenses={budgetExpenses}
             />
           </div>
           <div className={tab === "budget" ? "" : "hidden"}>
-            <BudgetModule netTakeHome={takeHomeCtx.netTakeHome} />
+            <BudgetModule
+              netTakeHome={takeHomeCtx.netTakeHome}
+              expenses={budgetExpenses}
+              onExpensesUpdate={setBudgetExpenses}
+            />
           </div>
           <div className={tab === "offer" ? "" : "hidden"}>
             <OfferModule />
