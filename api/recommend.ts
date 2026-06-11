@@ -11,7 +11,7 @@ const buckets = new Map();
 // Model wired per product owner request — confirmed working for this account.
 // The error path below still surfaces the real Anthropic status + body so any
 // future model-name issue is obvious rather than silently degrading.
-const CLAUDE_MODEL = 'claude-3-5-sonnet-20241022';
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 function getIpKey(req: any) {
   const xf = req.headers?.['x-forwarded-for'];
