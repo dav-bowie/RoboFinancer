@@ -120,9 +120,9 @@ export function calcStateTax(income: number, stateCode: string): number {
 
 const SS_WAGE_BASE_2024 = 168600;
 
-export function calcFICA(gross: number): { socialSecurity: number; medicare: number } {
+export function calcFICA(gross: number, surtaxThreshold = 200000): { socialSecurity: number; medicare: number } {
   const socialSecurity = Math.min(gross, SS_WAGE_BASE_2024) * 0.062;
-  const medicare = gross * 0.0145 + Math.max(0, gross - 200000) * 0.009;
+  const medicare = gross * 0.0145 + Math.max(0, gross - surtaxThreshold) * 0.009;
   return { socialSecurity, medicare };
 }
 
@@ -131,7 +131,8 @@ export function calcTakeHome(
   filingStatus: 'single' | 'married',
   stateCode: string,
   retirementRate: number,
-  retirementType: 'traditional' | 'roth' = 'traditional'
+  retirementType: 'traditional' | 'roth' = 'traditional',
+  hsaContrib: number = 0
 ): TaxBreakdown {
   const stdDeduction = filingStatus === 'married' ? 29200 : 14600;
   // 401(k) contribution amount (cap at IRS 2026 elective deferral limit)
@@ -141,20 +142,23 @@ export function calcTakeHome(
   // Only traditional (pre-tax) 401k reduces federal/state taxable income.
   const retirement401kPreTax = retirementType === 'traditional' ? contribution401k : 0;
 
-  const federalTaxableIncome = Math.max(0, gross - stdDeduction - retirement401kPreTax);
+  // HSA reduces Federal AGI only (not state, not FICA)
+  const federalTaxableIncome = Math.max(0, gross - stdDeduction - retirement401kPreTax - hsaContrib);
   const brackets = filingStatus === 'married' ? FEDERAL_BRACKETS_MARRIED_2024 : FEDERAL_BRACKETS_SINGLE_2024;
   const federalTax = calcMarginalTax(federalTaxableIncome, brackets);
 
-  // State taxable income also reduced by pre-tax 401k (not by Roth)
+  // State taxable income reduced by pre-tax 401k only (HSA not deductible at state level in most states)
   const stateTax = calcStateTax(gross - retirement401kPreTax, stateCode);
 
-  const { socialSecurity, medicare } = calcFICA(gross);
+  // Additional Medicare surtax (0.9%) threshold depends on filing status
+  const additionalMedicareSurtaxThreshold = filingStatus === 'married' ? 250000 : 200000;
+  const { socialSecurity, medicare } = calcFICA(gross, additionalMedicareSurtaxThreshold);
 
   // California SDI (employee) - 1.1% of gross salary for CA
   const caSDI = stateCode === 'CA' ? gross * 0.011 : 0;
 
-  // netTakeHome subtracts the actual contribution (whether roth or traditional)
-  const netTakeHome = gross - federalTax - stateTax - socialSecurity - medicare - contribution401k - caSDI;
+  // netTakeHome subtracts the actual contribution (whether roth or traditional) and HSA
+  const netTakeHome = gross - federalTax - stateTax - socialSecurity - medicare - contribution401k - caSDI - hsaContrib;
 
   return {
     gross,

@@ -22,6 +22,7 @@ const SLICE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#6366f1", "#10b981"];
 
 const IRS_401K_LIMIT_2026 = 24500;
 const IRS_ROTH_IRA_LIMIT_2026 = 7500; // under age 50; $8,500 if 50+
+const IRS_HSA_LIMIT_2026_SINGLE = 4300; // family limit is $8,550
 
 export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, budgetExpenses }: Props) {
   const [grossSalary, setGrossSalary] = useState(initialGrossSalary ?? 210000);
@@ -29,6 +30,7 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
   const [state, setState] = useState(initialState ?? "CA");
   const [retirementRate, setRetirementRate] = useState(6);
   const [retirementType, setRetirementType] = useState<"traditional" | "roth">("traditional");
+  const [hsaContrib, setHsaContrib] = useState(0);
   const [rothIraContrib, setRothIraContrib] = useState(0);
   const [employerMatchPct, setEmployerMatchPct] = useState(0);
   const [period, setPeriod] = useState<"annual" | "monthly">("annual");
@@ -46,8 +48,8 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
   }, [initialState]);
 
   const breakdown = useMemo(
-    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate, retirementType),
-    [grossSalary, filingStatus, state, retirementRate, retirementType]
+    () => calcTakeHome(grossSalary, filingStatus, state, retirementRate, retirementType, hsaContrib),
+    [grossSalary, filingStatus, state, retirementRate, retirementType, hsaContrib]
   );
 
   useEffect(() => {
@@ -80,7 +82,7 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
     const stdDeduction = filingStatus === "married" ? 29200 : 14600;
     const trad401k =
       retirementType === "traditional" ? breakdown.retirement401k : 0;
-    const federalAGI = Math.max(0, grossSalary - trad401k);
+    const federalAGI = Math.max(0, grossSalary - trad401k - hsaContrib);
     const federalTaxableIncome = Math.max(0, federalAGI - stdDeduction);
     const caSDI = breakdown.caSDI ?? 0;
     const totalTaxes =
@@ -111,6 +113,7 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
       filingStatus,
       state,
       trad401k,
+      hsa: hsaContrib,
       employerMatch: employerMatchAmount,
       rothIRA: rothIraContrib,
       federalAGI,
@@ -266,6 +269,34 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
             {retirementType === "traditional"
               ? "Pre-tax — reduces taxable income now"
               : "Post-tax — no tax on qualified withdrawals"}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between mb-1.5">
+            <label className="text-xs tracking-widest uppercase text-muted-foreground">
+              HSA Contribution
+            </label>
+            <span className="font-mono text-sm text-foreground">
+              {hsaContrib === 0 ? "$0/yr" : `$${hsaContrib.toLocaleString()}/yr`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={IRS_HSA_LIMIT_2026_SINGLE}
+            step={100}
+            value={hsaContrib}
+            onChange={(e) => setHsaContrib(Number(e.target.value))}
+            className="w-full h-1.5 appearance-none rounded-full cursor-pointer"
+            style={{ accentColor: "#0ea5e9" }}
+          />
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>$0</span>
+            <span>IRS 2026 single limit {fmtCurrency(IRS_HSA_LIMIT_2026_SINGLE)}/yr</span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Pre-tax — reduces federal AGI, grows tax-free for medical
           </div>
         </div>
 
@@ -428,6 +459,7 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
             { label: "Social Security (6.2%)", value: -breakdown.socialSecurity, color: "text-amber-400" },
             { label: "Medicare (1.45%+)", value: -breakdown.medicare, color: "text-amber-400" },
             { label: retirementType === "roth" ? "Roth 401(k) (post-tax)" : "401(k) Pre-Tax", value: -breakdown.retirement401k, color: "text-indigo-400" },
+            ...(hsaContrib > 0 ? [{ label: "HSA Contribution (pre-tax)", value: -hsaContrib, color: "text-sky-500" }] : []),
             ...(breakdown.caSDI && breakdown.caSDI > 0 ? [{ label: "CA SDI (1.1%)", value: -(breakdown.caSDI), color: "text-orange-400" }] : []),
             ...(rothIraContrib > 0 ? [{ label: "Roth IRA (post-tax savings)", value: -rothIraContrib, color: "text-emerald-600" }] : []),
             { label: "Spendable Take-Home", value: breakdown.netTakeHome - rothIraContrib, color: "text-emerald-400" },
