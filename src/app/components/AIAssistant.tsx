@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Bot, ChevronDown } from "lucide-react";
-import { fmtCurrency } from "../../lib/calculations";
+import { fmtCurrency, getMarginalBracket } from "../../lib/calculations";
 
 interface Message {
   role: "user" | "assistant";
@@ -17,71 +17,248 @@ interface Context {
   state: string;
   retirementRate: number;
   percentile?: number;
+  filingStatus: "single" | "married";
+  k401Type: "traditional" | "roth";
+  k401Amount: number;
+  employerMatch: number;
+  rothIRA: number;
+  federalTax: number;
+  stateTax: number;
+  socialSecurity: number;
+  medicare: number;
+  caSDI: number;
 }
 
-function generateResponse(input: string, ctx: Context): string {
-  const q = input.toLowerCase();
-  const monthlyTakeHome = ctx.netTakeHome / 12;
+// ── Token / cost protection constants ───────────────────────────────────────
+const MAX_CHARS = 280;
+const SESSION_LIMIT = 8;
+const SESSION_KEY = "robofinancer_api_calls";
 
-  // Greetings — friendly redirect
-  if (
-    q.match(/^(hi|hello|hey|howdy|sup|what's up|how are you|how r u|greetings|good morning|good afternoon|good evening)\b/)
-  ) {
-    return `Hi! I'm RoboFinancer's AI advisor — I'm built for comp and finance questions, not small talk 😄\n\nI can see you're a ${ctx.role || "tech professional"} in ${ctx.city || "your city"} earning ${ctx.totalComp > 0 ? fmtCurrency(ctx.totalComp) : "a comp you haven't entered yet"} in total comp.\n\nHere's what I can help with:\n• **Salary negotiation** — talking points, counter-offer strategy\n• **Tax breakdowns** — withholding, W-4, state differences\n• **Budgeting** — 50/30/20, savings rate, where to cut\n• **Offer evaluation** — true after-tax, cost-of-living comparison\n• **Equity & retirement** — RSUs, 401(k), Roth IRA strategy\n\nWhat would you like to dig into?`;
+const OFFTOPIC_MSG =
+  "I'm focused on compensation and finance. Ask me about your taxes, salary, job offer, or savings.";
+
+const EXHAUSTION_MSG =
+  "You've used all 8 AI questions for this session — that's the limit to keep things fast and free. The quick action buttons below still give you instant answers with no limit, or refresh the page to start a new session.";
+
+const PROD_ERROR_MSG =
+  "I couldn't reach the AI right now. Try one of the quick action buttons for instant answers, or refresh and try again.";
+
+// Topic-signal keywords — if a message contains none of these (case-insensitive),
+// it's treated as off-topic and answered instantly without an API call.
+const TOPIC_SIGNALS = [
+  "salary", "comp", "compensation", "pay", "paycheck", "income", "wage", "earn",
+  "base", "make", "made", "total comp", "tc", "annual", "hourly", "rate",
+  "tax", "taxes", "withhold", "w-4", "w4", "refund", "deduction", "bracket",
+  "marginal", "effective", "fica", "medicare", "social security",
+  "401k", "401(k)", "ira", "roth", "traditional", "retirement", "pension",
+  "invest", "saving", "save", "savings", "budget", "spend", "expense", "rent",
+  "offer", "negotiat", "raise", "counter", "promotion", "career", "job",
+  "equity", "rsu", "stock", "vesting", "vest", "bonus", "options", "grant",
+  "take-home", "take home", "takehome", "net", "gross", "percentile", "market", "fair",
+  "cost of living", "col", "relocat", "city", "state", "hsa", "match",
+  "money", "financ", "dollar", "$", "afford", "wealth", "fund", "portfolio",
+];
+
+function isOnTopic(text: string): boolean {
+  const q = text.toLowerCase();
+  return TOPIC_SIGNALS.some((kw) => q.includes(kw));
+}
+
+// ── Quick action answer builders (assembled CLIENT-SIDE — no API call) ───────
+function totalTaxesOf(ctx: Context): number {
+  return ctx.federalTax + ctx.stateTax + ctx.socialSecurity + ctx.medicare + (ctx.caSDI || 0);
+}
+
+function marginalInfo(ctx: Context): { label: string; rate: number; taxable: number } {
+  const std = ctx.filingStatus === "married" ? 29200 : 14600;
+  const trad = ctx.k401Type === "traditional" ? ctx.k401Amount : 0;
+  const taxable = Math.max(0, ctx.grossSalary - std - trad);
+  const label = getMarginalBracket(taxable, ctx.filingStatus);
+  return { label, rate: parseFloat(label) / 100, taxable };
+}
+
+function buildTaxBreakdown(ctx: Context): string {
+  const total = totalTaxesOf(ctx);
+  const gross = ctx.grossSalary || 0;
+  const effective = gross > 0 ? ((total / gross) * 100).toFixed(1) : "0";
+  const keep = gross > 0 ? (((gross - total) / gross) * 100).toFixed(1) : "0";
+  const monthly = ctx.netTakeHome / 12;
+  const lines = [
+    `Your total tax burden is about **${fmtCurrency(total)}/yr**. Based on your numbers:`,
+    ``,
+    `• **Federal income tax:** ${fmtCurrency(ctx.federalTax)}`,
+    `• **Social Security:** ${fmtCurrency(ctx.socialSecurity)} (6.2% up to the wage base)`,
+    `• **Medicare:** ${fmtCurrency(ctx.medicare)} (1.45%)`,
+    `• **${ctx.state} state tax:** ${fmtCurrency(ctx.stateTax)}`,
+  ];
+  if (ctx.caSDI && ctx.caSDI > 0) {
+    lines.push(`• **CA SDI:** ${fmtCurrency(ctx.caSDI)} (1.1%, California only)`);
+  }
+  lines.push(
+    ``,
+    `That's an effective tax rate of **${effective}%** on your ${fmtCurrency(gross)} gross — you keep **${keep}%** as take-home (${fmtCurrency(ctx.netTakeHome)}/yr, ${fmtCurrency(monthly)}/mo).`,
+    ``,
+    `Next: open the Take-Home tab and nudge your 401(k) rate up to watch federal and state tax drop.`
+  );
+  return lines.join("\n");
+}
+
+function buildSavingsAnswer(ctx: Context): string {
+  const gross = ctx.grossSalary || 0;
+  const annual = ctx.k401Amount + ctx.rothIRA;
+  const pct = gross > 0 ? (annual / gross) * 100 : 0;
+  const pctStr = pct.toFixed(1);
+  const match = ctx.employerMatch || 0;
+  const total = annual + match;
+
+  let tier: string;
+  if (pct > 15) {
+    tier = `At **${pctStr}%** of gross, you're saving aggressively — comfortably above the ~15% benchmark most planners cite for tech professionals.`;
+  } else if (pct >= 10) {
+    tier = `At **${pctStr}%** of gross, you're in a solid range — 10–15% is a common target.`;
+  } else {
+    tier = `At **${pctStr}%** of gross, you're below the ~10–15% range many aim for. One option to consider: bumping your 401(k) rate a few points, especially up to any employer match.`;
   }
 
-  if (q.includes("negotiat") || q.includes("raise") || q.includes("counter")) {
-    const gap = ctx.totalComp > 0 ? ctx.totalComp * 0.15 : 30000;
-    return `Based on your ${ctx.level} ${ctx.role} role in ${ctx.city}, here are three negotiation talking points:\n\n1. **Anchor to market data.** Cite Levels.fyi and Glassdoor — reference a range of ${fmtCurrency(
-      ctx.totalComp * 1.1
-    )}–${fmtCurrency(ctx.totalComp * 1.25)} for your level in this market. Never quote a single number.\n\n2. **Total comp, not just base.** If base movement is limited, negotiate a higher equity refresh or a one-time sign-on bonus of ${fmtCurrency(
-      gap
-    )}–${fmtCurrency(gap * 1.5)} to bridge the gap.\n\n3. **Create urgency, not desperation.** "I have a competing offer I'm evaluating" is powerful even if the other offer is early-stage.`;
+  const matchLine =
+    match > 0
+      ? `Your employer adds ${fmtCurrency(match)}/yr in match — that's free money, bringing total retirement contributions to **${fmtCurrency(total)}/yr**.`
+      : `No employer match is entered. If your employer offers one, that's free money worth capturing first.`;
+
+  return [
+    `You're putting away **${fmtCurrency(annual)}/yr** across your 401(k) (${fmtCurrency(ctx.k401Amount)}) and Roth IRA (${fmtCurrency(ctx.rothIRA)}).`,
+    ``,
+    tier,
+    ``,
+    matchLine,
+    ``,
+    `Next: open the Take-Home tab to model a higher contribution rate and see the take-home impact.`,
+  ].join("\n");
+}
+
+function buildEffectiveRateAnswer(ctx: Context): string {
+  const gross = ctx.grossSalary || 0;
+  const total = totalTaxesOf(ctx);
+  const effective = gross > 0 ? ((total / gross) * 100).toFixed(1) : "0";
+  const keep = gross > 0 ? (((gross - total) / gross) * 100).toFixed(1) : "0";
+  const { label: marginal } = marginalInfo(ctx);
+  return [
+    `Two different numbers people often mix up:`,
+    ``,
+    `• **Effective rate: ${effective}%** — your total taxes (${fmtCurrency(total)}) divided by your ${fmtCurrency(gross)} gross. It's what you actually pay across all your income.`,
+    `• **Marginal rate: ${marginal}** — the federal rate on your *next* dollar earned. It looks scarier, but it only applies to the top slice of your income, not the whole thing.`,
+    ``,
+    `Net effect: you keep about **${keep}%** of gross (${fmtCurrency(ctx.netTakeHome)}/yr).`,
+    ``,
+    `Next: try a raise scenario in the Take-Home tab to see how only the top slice gets taxed at the marginal rate.`,
+  ].join("\n");
+}
+
+function buildRothVsTradAnswer(ctx: Context): string {
+  const { label: marginal, rate } = marginalInfo(ctx);
+  const contrib = ctx.k401Amount;
+
+  if (contrib <= 0) {
+    return [
+      `You're not contributing to a 401(k) yet, so there's no tax tradeoff to weigh right now. Here's the core difference:`,
+      ``,
+      `• **Traditional (pre-tax):** lowers your taxable income today, but withdrawals in retirement are taxed.`,
+      `• **Roth (post-tax):** no break today, but qualified withdrawals — including growth — are tax-free later.`,
+      ``,
+      `Based on your ${marginal} marginal bracket, Traditional tends to win if you expect a lower bracket in retirement; Roth tends to win if you expect a higher one.`,
+      ``,
+      `Next: set a 401(k) rate in the Take-Home tab and toggle Traditional vs Roth to compare.`,
+    ].join("\n");
   }
 
-  if (q.includes("budget") || q.includes("spend") || q.includes("saving")) {
-    const savings = monthlyTakeHome * 0.2;
-    return `With a monthly take-home of ${fmtCurrency(monthlyTakeHome)}, here's a grounded 50/30/20 breakdown for ${ctx.city}:\n\n• **Needs (50%): ${fmtCurrency(
-      monthlyTakeHome * 0.5
-    )}/mo** — housing is typically 25–30% of take-home. In ${ctx.city}, that's ${fmtCurrency(monthlyTakeHome * 0.27)} for rent.\n• **Wants (30%): ${fmtCurrency(monthlyTakeHome * 0.3)}/mo** — dining, entertainment, travel.\n• **Savings (20%): ${fmtCurrency(savings)}/mo** — that's ${fmtCurrency(savings * 12)}/year, enough to max your Roth IRA ($7,000) and still contribute meaningfully to taxable investments.`;
+  const taxSavings = contrib * rate;
+
+  if (ctx.k401Type === "traditional") {
+    return [
+      `You're contributing **${fmtCurrency(contrib)}/yr** to a **Traditional 401(k)** (pre-tax).`,
+      ``,
+      `• That lowers your taxable income now, saving roughly **${fmtCurrency(taxSavings)}** this year at your ${marginal} marginal rate.`,
+      `• The tradeoff: withdrawals in retirement are taxed as ordinary income.`,
+      `• A **Roth 401(k)** flips this — no break today, but qualified withdrawals (including growth) are tax-free.`,
+      ``,
+      `One option to consider: Roth tends to win if you expect to be in a higher bracket later in your career.`,
+      ``,
+      `Next: toggle the 401(k) type in the Take-Home tab to see the take-home difference side by side.`,
+    ].join("\n");
   }
 
-  if (
-    q.includes("seattle") ||
-    q.includes("san francisco") ||
-    q.includes("new york") ||
-    q.includes("austin") ||
-    q.includes("relocat") ||
-    q.includes("city")
-  ) {
-    return `If you moved from ${ctx.city} to a lower cost-of-living city, your ${fmtCurrency(ctx.netTakeHome)} annual take-home would go further:\n\n• **Austin, TX**: No state income tax + CoL ~35% lower than SF. Equivalent purchasing power: ${fmtCurrency(
-      ctx.netTakeHome * 1.45
-    )}\n• **Seattle, WA**: No state income tax, CoL moderate. Equivalent: ${fmtCurrency(ctx.netTakeHome * 1.22)}\n• **Denver, CO**: 4.4% flat tax, CoL ~27% lower than SF. Equivalent: ${fmtCurrency(ctx.netTakeHome * 1.28)}\n\nThis is purchasing power parity, not raw salary — your lifestyle in Austin at ${fmtCurrency(ctx.grossSalary * 0.85)} would feel equivalent to your current situation.`;
-  }
+  return [
+    `You're contributing **${fmtCurrency(contrib)}/yr** to a **Roth 401(k)** (post-tax).`,
+    ``,
+    `• You pay tax now at your ${marginal} marginal rate, but qualified withdrawals — including all growth — are tax-free in retirement.`,
+    `• A **Traditional 401(k)** flips this — it would lower your taxable income today by about **${fmtCurrency(taxSavings)}**, but withdrawals get taxed later.`,
+    ``,
+    `Based on your numbers, Roth is a strong fit if you expect a higher bracket in retirement than today.`,
+    ``,
+    `Next: toggle the 401(k) type in the Take-Home tab to compare lifetime tax treatment.`,
+  ].join("\n");
+}
 
-  if (q.includes("equity") || q.includes("rsu") || q.includes("stock") || q.includes("vesting")) {
-    return `Equity is frequently the most misunderstood part of tech comp. Key points:\n\n1. **Vesting schedule matters.** Most equity is 4-year with a 1-year cliff. If you leave at month 11, you get nothing.\n\n2. **Valuation risk.** RSUs at public companies are cash-equivalent at vest. Private company equity has high uncertainty — discount by 50–80% in your mental model unless you have strong signals.\n\n3. **Refresh grants.** After year 2, high performers typically receive refreshes that sustain total comp. Ask about the refresh philosophy in your offer call.\n\n4. **Tax treatment.** RSUs are taxed as ordinary income at vest — your ${ctx.state} state taxes apply. ISOs have favorable tax treatment but introduce AMT risk at higher amounts.`;
-  }
+interface QuickAction {
+  id: string;
+  label: (ctx: Context) => string;
+  build: (ctx: Context) => string;
+}
 
-  if (q.includes("401k") || q.includes("retirement") || q.includes("ira") || q.includes("invest")) {
-    const maxContrib = 23000;
-    const currentContrib = ctx.grossSalary * (ctx.retirementRate / 100);
-    return `At your income level, tax-advantaged accounts are among the highest-leverage financial moves you can make.\n\n• **401(k)**: IRS limit is ${fmtCurrency(maxContrib)} in 2024. You're currently contributing ${fmtCurrency(
-      currentContrib
-    )}/yr (${ctx.retirementRate}%). ${currentContrib < maxContrib ? `You have room to increase by ${fmtCurrency(maxContrib - currentContrib)}.` : "You're maxed out — excellent."}\n\n• **Roth IRA**: If your income is under $161K (single), contribute $7,000. Above that, use the backdoor Roth.\n\n• **HSA**: If you have a high-deductible health plan, contribute the $4,150 single limit. It's triple-tax-advantaged.`;
-  }
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    id: "tax",
+    label: (ctx) => `Why is my tax ${fmtCurrency(totalTaxesOf(ctx))}?`,
+    build: buildTaxBreakdown,
+  },
+  {
+    id: "saving",
+    label: () => "Am I saving enough?",
+    build: buildSavingsAnswer,
+  },
+  {
+    id: "effective",
+    label: () => "What's my effective tax rate?",
+    build: buildEffectiveRateAnswer,
+  },
+  {
+    id: "roth",
+    label: () => "Roth vs Traditional 401k?",
+    build: buildRothVsTradAnswer,
+  },
+];
 
-  if (q.includes("tax") || q.includes("withhold") || q.includes("w-4") || q.includes("refund")) {
-    return `A few things to know about your tax situation in ${ctx.state}:\n\n• Your estimated federal effective rate is around ${(((ctx.grossSalary * 0.22 - 5000) / ctx.grossSalary) * 100).toFixed(1)}% — but your marginal rate on the next dollar earned is higher.\n\n• ${ctx.state === "CA" ? "California's top marginal rate hits 13.3% above $1M, but the 9.3% bracket starts at $68K. You're likely paying 8–9.3% on most of your income." : ctx.state === "WA" || ctx.state === "TX" || ctx.state === "FL" ? `${ctx.state} has no state income tax — a meaningful perk that's worth ${fmtCurrency(
-      ctx.grossSalary * 0.06
-    )}–${fmtCurrency(ctx.grossSalary * 0.09)} annually vs. high-tax states.` : "Your state rate is in the moderate range — not as punishing as CA or NY."}\n\n• Adjust your W-4 if you're getting a large refund or owed a lot — that means your withholding is off.`;
-  }
+// ── Guided follow-up chips (each fires a real API call) ──────────────────────
+const GUIDED_CHIPS: { label: string; prompt: string }[] = [
+  {
+    label: "Salary negotiation",
+    prompt:
+      "Give me three specific talking points to negotiate a higher offer, using my current comp and market percentile.",
+  },
+  {
+    label: "Compare an offer",
+    prompt:
+      "I have another job offer. How should I compare it to my current comp after taxes and cost of living?",
+  },
+  {
+    label: "Reduce my taxes",
+    prompt:
+      "What are concrete ways I could lower my tax bill given my salary, state, and 401(k) setup?",
+  },
+  {
+    label: "Explain my equity",
+    prompt:
+      "Explain how my equity and RSUs work, including vesting schedules and how they're taxed.",
+  },
+];
 
-  if (q.includes("offer") || q.includes("should i take") || q.includes("worth it")) {
-    return `To evaluate whether an offer is worth taking, I look at five dimensions:\n\n1. **After-tax, CoL-adjusted comp** — use the Offer Comparison module for a real number.\n2. **Equity quality** — public RSUs vs. private options are very different.\n3. **Commute cost** — 1 hour daily commute costs ~250 hours/year. At your implied hourly rate, that's ${fmtCurrency((ctx.grossSalary / 2000) * 250)}.\n-4. **Career trajectory** — will this role put you in the top percentile in 2 years?\n-5. **Team and manager** — this is the hardest to quantify but often the deciding factor.\n-\n-Want me to run a specific comparison?`;
+function errorMessage(status?: number, details?: string): string {
+  if (import.meta.env.DEV) {
+    const parts = [`[dev] AI request failed${status ? ` (HTTP ${status})` : ""}.`];
+    if (details) parts.push(details);
+    return parts.join("\n\n");
   }
-
-  return `I'm RoboFinancer's AI advisor. I have context on your ${ctx.role} role in ${ctx.city} earning ${fmtCurrency(ctx.totalComp)} total comp.\n\nI can help with:\n• Salary negotiation talking points\n• Tax breakdowns and withholding\n• Budgeting for your income level\n• City comparison and cost of living\n• Equity and retirement strategy\n• Offer evaluation\n\nWhat would you like to dig into?`;
+  return PROD_ERROR_MSG;
 }
 
 export function AIAssistant({ context }: { context: Context }) {
@@ -89,13 +266,25 @@ export function AIAssistant({ context }: { context: Context }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hey — I'm your RoboFinancer advisor. I can see you're a ${context.role || "tech professional"} in ${context.city || "your city"} earning around ${context.totalComp > 0 ? fmtCurrency(context.totalComp) : "an amount you haven't entered yet"} in total comp.\n\nAsk me anything: negotiation tactics, tax strategy, budget recommendations, or whether to take that new offer.`,
+      content: `Hey — I'm your RoboFinancer advisor. I can see you're a ${context.role || "tech professional"} in ${context.city || "your city"} earning around ${context.totalComp > 0 ? fmtCurrency(context.totalComp) : "an amount you haven't entered yet"} in total comp.\n\nTap a quick question below for an instant answer, or ask me anything about your taxes, savings, or job offer.`,
     },
   ]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
+  const [apiCalls, setApiCalls] = useState(() => {
+    if (typeof sessionStorage === "undefined") return 0;
+    return Number(sessionStorage.getItem(SESSION_KEY)) || 0;
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const hasUserMessage = messages.some((m) => m.role === "user");
+  const exhausted = apiCalls >= SESSION_LIMIT;
+  // Quick actions are ALWAYS available: they assemble answers client-side with
+  // no API call, so there's no reason to ever hide them. Previously they were
+  // hidden once the user sent a message, which made them unreachable for the
+  // rest of the session and looked like the buttons "did nothing".
+  const showQuickActions = true;
 
   useEffect(() => {
     if (open && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
@@ -105,22 +294,67 @@ export function AIAssistant({ context }: { context: Context }) {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const send = async () => {
-    if (!input.trim() || typing) return;
-    const userMsg: Message = { role: "user", content: input.trim() };
-    setMessages((m) => [...m, userMsg]);
+  const runQuickAction = (qa: QuickAction) => {
+    // Build the label and answer defensively — a quick action must never be a
+    // no-op. If the context is missing fields, surface a helpful message
+    // instead of letting an exception swallow the click.
+    let label: string;
+    try {
+      label = qa.label(context);
+    } catch {
+      label = "Quick question";
+    }
+    let answer: string;
+    try {
+      answer = qa.build(context);
+    } catch (err) {
+      console.error("Quick action failed:", qa.id, err);
+      answer =
+        "I couldn't put that together from your current numbers. Add your salary, state, and 401(k) details in the tabs above, then try again.";
+    }
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: label },
+      { role: "assistant", content: answer },
+    ]);
+  };
+
+  const send = async (textArg?: string) => {
+    const text = (textArg ?? input).trim();
+    if (!text || typing) return;
+    if (text.length > MAX_CHARS) return;
+
+    setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
+
+    // Frontend topic guardrail — answer off-topic questions instantly, no API call.
+    if (!isOnTopic(text)) {
+      setMessages((m) => [...m, { role: "assistant", content: OFFTOPIC_MSG }]);
+      return;
+    }
+
+    // Session message limit — only real API calls are counted.
+    if (apiCalls >= SESSION_LIMIT) {
+      setMessages((m) => [...m, { role: "assistant", content: EXHAUSTION_MSG }]);
+      return;
+    }
+
+    const newCount = apiCalls + 1;
+    setApiCalls(newCount);
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(SESSION_KEY, String(newCount));
+
     setTyping(true);
 
-    // Build request payload per spec
     const payload = {
       gross_salary: context.grossSalary ?? null,
       state: context.state ?? null,
+      filing_status: context.filingStatus ?? null,
       take_home: context.netTakeHome ?? null,
-      expenses: null,
-      framework: null,
+      monthly_take_home: context.netTakeHome ? context.netTakeHome / 12 : null,
+      k401_amount: context.k401Amount ?? null,
+      k401_type: context.k401Type ?? null,
       market_percentile: context.percentile ?? null,
-      question: userMsg.content,
+      question: text,
     };
 
     try {
@@ -131,23 +365,22 @@ export function AIAssistant({ context }: { context: Context }) {
       });
 
       if (!resp.ok) {
-        const text = await resp.text();
-        console.error("/api/recommend error:", resp.status, text);
-        const fallback = generateResponse(userMsg.content, context);
-        setMessages((m) => [...m, { role: "assistant", content: fallback }]);
+        const errText = await resp.text();
+        console.error("/api/recommend error:", resp.status, errText);
+        setMessages((m) => [...m, { role: "assistant", content: errorMessage(resp.status, errText) }]);
       } else {
         const data = await resp.json();
-        const answer = data?.answer ?? data?.result ?? null;
-        if (answer) setMessages((m) => [...m, { role: "assistant", content: String(answer) }]);
-        else {
-          const fallback = generateResponse(userMsg.content, context);
-          setMessages((m) => [...m, { role: "assistant", content: fallback }]);
+        const answer = data?.answer ?? null;
+        if (answer) {
+          setMessages((m) => [...m, { role: "assistant", content: String(answer) }]);
+        } else {
+          console.error("/api/recommend: empty answer body", data);
+          setMessages((m) => [...m, { role: "assistant", content: errorMessage(resp.status, JSON.stringify(data)) }]);
         }
       }
     } catch (err) {
       console.error("Error calling /api/recommend:", err);
-      const fallback = generateResponse(userMsg.content, context);
-      setMessages((m) => [...m, { role: "assistant", content: fallback }]);
+      setMessages((m) => [...m, { role: "assistant", content: errorMessage(undefined, String(err)) }]);
     } finally {
       setTyping(false);
     }
@@ -176,6 +409,11 @@ export function AIAssistant({ context }: { context: Context }) {
       );
     });
 
+  const counterColor =
+    input.length >= MAX_CHARS ? "text-red-400" : input.length >= 250 ? "text-orange-400" : "text-muted-foreground";
+
+  const sendDisabled = !input.trim() || input.length > MAX_CHARS || typing;
+
   return (
     <>
       <button
@@ -186,7 +424,7 @@ export function AIAssistant({ context }: { context: Context }) {
       </button>
 
       {open && (
-        <div className="fixed bottom-20 right-2 left-2 sm:left-auto sm:right-6 sm:w-96 h-[min(520px,calc(100dvh-88px))] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
+        <div className="fixed bottom-20 right-2 left-2 sm:left-auto sm:right-6 sm:w-96 h-[min(560px,calc(100dvh-88px))] bg-card border border-border rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Bot size={16} className="text-primary" />
@@ -216,21 +454,71 @@ export function AIAssistant({ context }: { context: Context }) {
                 </div>
               </div>
             )}
+
+            {/* Guided follow-up chips — appear after the first message */}
+            {hasUserMessage && !typing && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {GUIDED_CHIPS.map((chip) => (
+                  <button
+                    key={chip.label}
+                    onClick={() => send(chip.prompt)}
+                    disabled={typing}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-border bg-secondary text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors disabled:opacity-40"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-border px-3 py-3 flex gap-2">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Ask about your comp, taxes, offers..."
-              className="flex-1 bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <button onClick={send} disabled={!input.trim() || typing} className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors">
-              <Send size={13} />
-            </button>
+          {/* Quick action buttons — FREE, assembled client-side, no API call */}
+          {showQuickActions && (
+            <div className="border-t border-border px-3 pt-3 pb-1">
+              {exhausted && (
+                <div className="text-[11px] text-muted-foreground mb-2">
+                  Free instant answers — no session limit:
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_ACTIONS.map((qa) => (
+                  <button
+                    key={qa.id}
+                    onClick={() => runQuickAction(qa)}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    {qa.label(context)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-border px-3 py-3 space-y-1.5">
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                value={input}
+                maxLength={MAX_CHARS}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && send()}
+                placeholder="Ask about your comp, taxes, offers..."
+                className="flex-1 bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button onClick={() => send()} disabled={sendDisabled} className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors">
+                <Send size={13} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">
+                {Math.min(apiCalls, SESSION_LIMIT)} of {SESSION_LIMIT} AI questions used
+              </span>
+              <span className={counterColor}>
+                {input.length}/{MAX_CHARS}
+              </span>
+            </div>
           </div>
         </div>
       )}

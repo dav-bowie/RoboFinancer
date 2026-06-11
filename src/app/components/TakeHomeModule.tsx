@@ -12,7 +12,22 @@ interface BudgetExpenses {
 }
 
 interface Props {
-  onUpdate: (data: { grossSalary: number; netTakeHome: number; state: string; retirementRate: number }) => void;
+  onUpdate: (data: {
+    grossSalary: number;
+    netTakeHome: number;
+    state: string;
+    retirementRate: number;
+    filingStatus: "single" | "married";
+    k401Type: "traditional" | "roth";
+    k401Amount: number;
+    employerMatch: number;
+    rothIRA: number;
+    federalTax: number;
+    stateTax: number;
+    socialSecurity: number;
+    medicare: number;
+    caSDI: number;
+  }) => void;
   initialGrossSalary?: number;
   initialState?: string;
   budgetExpenses?: BudgetExpenses;
@@ -53,8 +68,23 @@ export function TakeHomeModule({ onUpdate, initialGrossSalary, initialState, bud
   );
 
   useEffect(() => {
-    onUpdate({ grossSalary, netTakeHome: breakdown.netTakeHome, state, retirementRate });
-  }, [breakdown, grossSalary, state, retirementRate]);
+    onUpdate({
+      grossSalary,
+      netTakeHome: breakdown.netTakeHome,
+      state,
+      retirementRate,
+      filingStatus,
+      k401Type: retirementType,
+      k401Amount: breakdown.retirement401k,
+      employerMatch: Math.round(grossSalary * (employerMatchPct / 100)),
+      rothIRA: rothIraContrib,
+      federalTax: breakdown.federalTax,
+      stateTax: breakdown.stateTax,
+      socialSecurity: breakdown.socialSecurity,
+      medicare: breakdown.medicare,
+      caSDI: breakdown.caSDI ?? 0,
+    });
+  }, [breakdown, grossSalary, state, retirementRate, filingStatus, retirementType, employerMatchPct, rothIraContrib]);
 
   const div = period === "monthly" ? 12 : 1;
   const label = period === "monthly" ? "/mo" : "/yr";

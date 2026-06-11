@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { BarChart2, X, Info, Link2, Check } from "lucide-react";
 import { readUrlState, writeUrlState } from "../lib/useUrlState";
+import { getMarketData, getPercentile } from "../lib/calculations";
 
 const BenchmarkModule = lazy(() =>
   import("./components/BenchmarkModule").then((m) => ({ default: m.BenchmarkModule }))
@@ -96,6 +97,16 @@ export default function App() {
     netTakeHome: 0,
     state: urlInit.state ?? "CA",
     retirementRate: urlInit.k401 ?? 6,
+    filingStatus: "single" as "single" | "married",
+    k401Type: "traditional" as "traditional" | "roth",
+    k401Amount: 0,
+    employerMatch: 0,
+    rothIRA: 0,
+    federalTax: 0,
+    stateTax: 0,
+    socialSecurity: 0,
+    medicare: 0,
+    caSDI: 0,
   });
 
   // Shared expense state — fed into BudgetModule (display) and TakeHomeModule (PDF export)
@@ -128,11 +139,31 @@ export default function App() {
   );
 
   const handleTakeHomeUpdate = useCallback(
-    (data: { grossSalary: number; netTakeHome: number; state: string; retirementRate: number }) => {
+    (data: {
+      grossSalary: number;
+      netTakeHome: number;
+      state: string;
+      retirementRate: number;
+      filingStatus: "single" | "married";
+      k401Type: "traditional" | "roth";
+      k401Amount: number;
+      employerMatch: number;
+      rothIRA: number;
+      federalTax: number;
+      stateTax: number;
+      socialSecurity: number;
+      medicare: number;
+      caSDI: number;
+    }) => {
       setTakeHomeCtx(data);
     },
     []
   );
+
+  // Derive the user's market percentile from the benchmark module's inputs so the
+  // AI assistant can reference it in context.
+  const marketData = getMarketData(benchmarkCtx.role, benchmarkCtx.level, benchmarkCtx.city);
+  const percentile = marketData ? getPercentile(benchmarkCtx.totalComp, marketData) : undefined;
 
   const aiCtx = {
     role: benchmarkCtx.role,
@@ -143,6 +174,17 @@ export default function App() {
     netTakeHome: takeHomeCtx.netTakeHome,
     state: takeHomeCtx.state,
     retirementRate: takeHomeCtx.retirementRate,
+    filingStatus: takeHomeCtx.filingStatus,
+    k401Type: takeHomeCtx.k401Type,
+    k401Amount: takeHomeCtx.k401Amount,
+    employerMatch: takeHomeCtx.employerMatch,
+    rothIRA: takeHomeCtx.rothIRA,
+    federalTax: takeHomeCtx.federalTax,
+    stateTax: takeHomeCtx.stateTax,
+    socialSecurity: takeHomeCtx.socialSecurity,
+    medicare: takeHomeCtx.medicare,
+    caSDI: takeHomeCtx.caSDI,
+    percentile,
   };
 
   const { title, subtitle } = MODULE_DESCRIPTIONS[tab];
