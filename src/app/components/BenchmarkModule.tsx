@@ -9,6 +9,16 @@ import {
 } from "../../lib/calculations";
 import { supabase } from "../../lib/supabaseClient";
 
+function ordinalSuffix(n: number): string {
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  if (mod100 >= 11 && mod100 <= 13) return 'th';
+  if (mod10 === 1) return 'st';
+  if (mod10 === 2) return 'nd';
+  if (mod10 === 3) return 'rd';
+  return 'th';
+}
+
 interface Props {
   onUpdate: (data: { role: string; level: string; city: string; totalComp: number }) => void;
 }
@@ -102,7 +112,14 @@ export function BenchmarkModule({ onUpdate }: Props) {
     onUpdate({ role, level, city, totalComp });
   }, [role, level, city, totalComp]);
 
-  const actualPercentile = percentile !== null ? percentile : fallbackMarketData ? getPercentile(totalComp, fallbackMarketData) : null;
+  // Use the data we're actually displaying as the source for percentile computation,
+  // falling back to fallbackMarketData so static-only mode always produces a number.
+  const effectiveData = marketData ?? fallbackMarketData;
+  const actualPercentile = percentile !== null
+    ? percentile
+    : effectiveData
+      ? getPercentile(totalComp, effectiveData)
+      : null;
 
   const percentileColor =
     actualPercentile === null
@@ -247,8 +264,8 @@ export function BenchmarkModule({ onUpdate }: Props) {
               </div>
               <div className="flex items-baseline gap-3 mb-1">
                 <span className={`font-mono text-4xl font-medium ${percentileColor}`}>
-                  {percentile}
-                  <span className="text-xl">th</span>
+                  {actualPercentile}
+                  <span className="text-xl">{actualPercentile !== null ? ordinalSuffix(actualPercentile) : 'th'}</span>
                 </span>
                 <span className="text-sm text-muted-foreground">percentile</span>
               </div>
