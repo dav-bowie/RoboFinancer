@@ -2,8 +2,17 @@ import { useState, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { fmtCurrency } from "../../lib/calculations";
 
+interface BudgetExpenses {
+  housing: number;
+  food: number;
+  transport: number;
+  otherFixed: number;
+}
+
 interface Props {
   netTakeHome: number;
+  expenses?: BudgetExpenses;
+  onExpensesUpdate?: (expenses: BudgetExpenses) => void;
 }
 
 const FRAMEWORKS = [
@@ -13,15 +22,20 @@ const FRAMEWORKS = [
   { id: "40-30-30", label: "40/30/30", needs: 0.4, wants: 0.3, savings: 0.3 },
 ];
 
-export function BudgetModule({ netTakeHome }: Props) {
+export function BudgetModule({ netTakeHome, expenses, onExpensesUpdate }: Props) {
   const [frameworkId, setFrameworkId] = useState("50-30-20");
   const [customTakeHome, setCustomTakeHome] = useState<number | null>(null);
-  const [housing, setHousing] = useState(3200);
-  const [food, setFood] = useState(800);
-  const [transport, setTransport] = useState(400);
+  const [housing, setHousingLocal] = useState(expenses?.housing ?? 3200);
+  const [food, setFoodLocal] = useState(expenses?.food ?? 800);
+  const [transport, setTransportLocal] = useState(expenses?.transport ?? 400);
   const [subscriptions, setSubscriptions] = useState(200);
   const [entertainment, setEntertainment] = useState(500);
-  const [other, setOther] = useState(600);
+  const [other, setOther] = useState(expenses?.otherFixed ?? 0);
+
+  const setHousing = (v: number) => { setHousingLocal(v); onExpensesUpdate?.({ housing: v, food, transport, otherFixed: other }); };
+  const setFood = (v: number) => { setFoodLocal(v); onExpensesUpdate?.({ housing, food: v, transport, otherFixed: other }); };
+  const setTransport = (v: number) => { setTransportLocal(v); onExpensesUpdate?.({ housing, food, transport: v, otherFixed: other }); };
+  const setOtherWithCb = (v: number) => { setOther(v); onExpensesUpdate?.({ housing, food, transport, otherFixed: v }); };
 
   const income = customTakeHome ?? netTakeHome;
   const monthlyIncome = income / 12;
@@ -183,7 +197,7 @@ export function BudgetModule({ netTakeHome }: Props) {
           {[
             { label: "Subscriptions", value: subscriptions, set: setSubscriptions },
             { label: "Entertainment", value: entertainment, set: setEntertainment },
-            { label: "Other", value: other, set: setOther },
+            { label: "Other", value: other, set: setOtherWithCb },
           ].map(({ label, value, set }) => (
             <div key={label} className="flex items-center gap-3">
               <label className="text-xs text-muted-foreground w-36 shrink-0">{label}</label>
