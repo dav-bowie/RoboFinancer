@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   ROLES,
   LEVELS_BY_ROLE,
@@ -20,30 +21,43 @@ function ordinalSuffix(n: number): string {
 }
 
 interface Props {
-  onUpdate: (data: { role: string; level: string; city: string; totalComp: number; baseSalary: number; state: string }) => void;
+  onUpdate: (data: {
+    role: string;
+    level: string;
+    city: string;
+    totalComp: number;
+    baseSalary: number;
+    bonus: number;
+    equity: number;
+    state: string;
+    percentile: number | null;
+    usingLiveData: boolean;
+  }) => void;
   initialRole?: string;
   initialLevel?: string;
   initialCity?: string;
   initialBaseSalary?: number;
+  initialBonus?: number;
+  initialEquity?: number;
 }
 
-export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCity, initialBaseSalary }: Props) {
+export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCity, initialBaseSalary, initialBonus, initialEquity }: Props) {
   const [role, setRole] = useState(initialRole ?? "Software Engineer");
   const [level, setLevel] = useState(initialLevel ?? "L5 / Senior");
   const [city, setCity] = useState(initialCity ?? "San Francisco, CA");
   const [baseSalary, setBaseSalary] = useState(initialBaseSalary ?? 210000);
-  const [bonus, setBonus] = useState(25000);
-  const [equity, setEquity] = useState(80000);
+  const [bonus, setBonus] = useState(initialBonus ?? 25000);
+  const [equity, setEquity] = useState(initialEquity ?? 80000);
 
   const levels = LEVELS_BY_ROLE[role] || [];
   const totalComp = baseSalary + bonus + equity;
-  // Local fallback market data
   const fallbackMarketData = useMemo(() => getMarketData(role, level, city), [role, level, city]);
 
-  // Supabase-driven market data (if available)
   const [marketData, setMarketData] = useState<any | null>(null);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [percentile, setPercentile] = useState<number | null>(null);
+  const [usingLiveData, setUsingLiveData] = useState(false);
+  const [marketError, setMarketError] = useState<string | null>(null);
 
   // derive a normalized role and state from selections
   const roleNormalized = role.toLowerCase().trim();
@@ -53,16 +67,17 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
     let mounted = true;
     async function fetchMarket() {
       setLoadingMarket(true);
+      setMarketError(null);
       try {
         if (!supabase) {
-          // fallback to static data
-          if (mounted) setMarketData(fallbackMarketData || null);
+          if (mounted) {
+            setMarketData(fallbackMarketData || null);
+            setUsingLiveData(false);
+            setPercentile(null);
+          }
           return;
         }
 
-        // Query salary_benchmarks filtering by role_normalized ILIKE, location_state,
-        // and a years_exp range. We don't have user's years_exp input in this UI;
-        // for now omit years_exp filter so we get broader matches.
         const { data, error } = await supabase
           .from("salary_benchmarks")
           .select("base_salary")
@@ -72,28 +87,42 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
 
         if (error) {
           console.error("Supabase query error:", error);
-          if (mounted) setMarketData(fallbackMarketData || null);
+          if (mounted) {
+            setMarketData(fallbackMarketData || null);
+            setUsingLiveData(false);
+            setPercentile(null);
+            setMarketError("Live benchmark data unavailable — using estimates.");
+            toast.error("Could not load live benchmark data. Using estimates.");
+          }
         } else if (data && data.length > 0) {
-          // compute percentiles from base_salary values
           const salaries = data.map((r: any) => Number(r.base_salary)).filter(Boolean).sort((a: number, b: number) => a - b);
           const p25 = salaries[Math.floor(0.25 * (salaries.length - 1))] || fallbackMarketData?.p25 || 0;
           const p50 = salaries[Math.floor(0.5 * (salaries.length - 1))] || fallbackMarketData?.p50 || 0;
           const p75 = salaries[Math.floor(0.75 * (salaries.length - 1))] || fallbackMarketData?.p75 || 0;
           const p90 = salaries[Math.floor(0.9 * (salaries.length - 1))] || fallbackMarketData?.p90 || 0;
 
-          const computed = { p25, p50, p75, p90 };
-          if (mounted) setMarketData(computed);
-
-          // percentile rank of totalComp among salaries
-          const idx = salaries.findIndex((s: number) => s >= totalComp);
-          const rank = idx === -1 ? 100 : Math.round((idx / Math.max(1, salaries.length - 1)) * 100);
-          if (mounted) setPercentile(rank);
+          if (mounted) {
+            setMarketData({ p25, p50, p75, p90 });
+            setUsingLiveData(true);
+            const idx = salaries.findIndex((s: number) => s >= baseSalary);
+            const rank = idx === -1 ? 100 : Math.round((idx / Math.max(1, salaries.length - 1)) * 100);
+            setPercentile(rank);
+          }
         } else {
-          if (mounted) setMarketData(fallbackMarketData || null);
+          if (mounted) {
+            setMarketData(fallbackMarketData || null);
+            setUsingLiveData(false);
+            setPercentile(null);
+          }
         }
       } catch (err) {
         console.error(err);
-        if (mounted) setMarketData(fallbackMarketData || null);
+        if (mounted) {
+          setMarketData(fallbackMarketData || null);
+          setUsingLiveData(false);
+          setPercentile(null);
+          setMarketError("Live benchmark data unavailable — using estimates.");
+        }
       } finally {
         if (mounted) setLoadingMarket(false);
       }
@@ -103,18 +132,13 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, level, city, totalComp]);
+  }, [role, level, city, baseSalary, roleNormalized, locationState, fallbackMarketData]);
 
   const handleRoleChange = (newRole: string) => {
     setRole(newRole);
     const newLevels = LEVELS_BY_ROLE[newRole] || [];
     if (!newLevels.includes(level)) setLevel(newLevels[2] || newLevels[0] || "");
   };
-
-  useEffect(() => {
-    onUpdate({ role, level, city, totalComp, baseSalary, state: locationState });
-  }, [role, level, city, totalComp, baseSalary, locationState]);
 
   // Use the data we're actually displaying as the source for percentile computation,
   // falling back to fallbackMarketData so static-only mode always produces a number.
@@ -124,6 +148,21 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
     : effectiveData
       ? getPercentile(totalComp, effectiveData)
       : null;
+
+  useEffect(() => {
+    onUpdate({
+      role,
+      level,
+      city,
+      totalComp,
+      baseSalary,
+      bonus,
+      equity,
+      state: locationState,
+      percentile: actualPercentile,
+      usingLiveData,
+    });
+  }, [role, level, city, totalComp, baseSalary, bonus, equity, locationState, actualPercentile, usingLiveData, onUpdate]);
 
   const percentileColor =
     actualPercentile === null
@@ -332,7 +371,7 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
                   <span className="font-mono text-primary">{fmtCurrency(marketData.p50)}</span>{" "}
                   (market median) — a potential increase of{" "}
                   <span className="font-mono text-primary">
-                    {fmtCurrency(marketData.p50 - totalComp)}
+                    {fmtCurrency(marketData.p50 - (usingLiveData ? baseSalary : totalComp))}
                   </span>
                   . Reference your p75 of{" "}
                   <span className="font-mono">{fmtCurrency(marketData.p75)}</span> as your stretch target.
@@ -348,10 +387,27 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
               </div>
             )}
           </>
+        ) : loadingMarket ? (
+          <div className="rounded border border-border bg-card p-8 text-center text-muted-foreground text-sm">
+            Loading market data…
+          </div>
         ) : (
           <div className="rounded border border-border bg-card p-8 text-center text-muted-foreground text-sm">
             Select a role and level to see market data.
           </div>
+        )}
+        {marketError && (
+          <p className="text-xs text-amber-400">{marketError}</p>
+        )}
+        {usingLiveData && (
+          <p className="text-xs text-muted-foreground">
+            Percentile compares your <strong className="text-foreground">base salary</strong> to H1B base wages in {locationState}. Total comp (bonus + equity) is shown separately.
+          </p>
+        )}
+        {!usingLiveData && actualPercentile !== null && (
+          <p className="text-xs text-muted-foreground">
+            Percentile compares your <strong className="text-foreground">total comp</strong> (base + bonus + equity) to static market estimates for {role} · {level}.
+          </p>
         )}
       </div>
     </div>

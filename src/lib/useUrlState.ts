@@ -13,6 +13,12 @@ export interface UrlState {
   role: string;
   level: string;
   city: string;
+  /** Base64url-encoded offer comparison snapshot */
+  offers?: string;
+  bonus?: number;
+  equity?: number;
+  /** Base64url-encoded budget + balance sheet snapshot */
+  budget?: string;
 }
 
 const DEFAULTS: UrlState = {
@@ -65,6 +71,18 @@ export function readUrlState(): Partial<UrlState> {
   const city = p.get("city");
   if (city) out.city = city;
 
+  const offers = p.get("offers");
+  if (offers) out.offers = offers;
+
+  const bonus = Number(p.get("bonus"));
+  if (!isNaN(bonus) && bonus >= 0 && bonus <= 5_000_000) out.bonus = bonus;
+
+  const equity = Number(p.get("equity"));
+  if (!isNaN(equity) && equity >= 0 && equity <= 5_000_000) out.equity = equity;
+
+  const budget = p.get("budget");
+  if (budget) out.budget = budget;
+
   return out;
 }
 
@@ -86,6 +104,10 @@ export function writeUrlState(s: Partial<UrlState>) {
   if (s.role && s.role !== DEFAULTS.role) p.set("role", s.role);
   if (s.level && s.level !== DEFAULTS.level) p.set("level", s.level);
   if (s.city && s.city !== DEFAULTS.city) p.set("city", s.city);
+  if (s.offers) p.set("offers", s.offers);
+  if (s.bonus !== undefined && s.bonus > 0) p.set("bonus", String(s.bonus));
+  if (s.equity !== undefined && s.equity > 0) p.set("equity", String(s.equity));
+  if (s.budget) p.set("budget", s.budget);
 
   const qs = p.toString();
   const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;

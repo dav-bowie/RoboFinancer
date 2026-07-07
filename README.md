@@ -15,7 +15,7 @@ RoboFinancer is an AI-powered compensation clarity web app for tech professional
 | Frontend | React 18 + TypeScript + Vite 6 |
 | Styling | Tailwind CSS 4 + shadcn/ui + Radix UI |
 | Charts | Recharts 2 |
-| Routing | React Router 7 |
+| Routing | URL query params (no router) |
 | Data | Supabase (PostgreSQL) — 95,518 H1B salary records |
 | AI | Claude (claude-sonnet-4-6) via Vercel serverless proxy |
 | Tests | Vitest |
@@ -64,7 +64,14 @@ pip install -r requirements.txt
 python3 loadH1B.py
 ```
 
-This loads FY2025 Q4 H1B wage disclosure records into the `salary_benchmarks` table in Supabase. The table must exist with RLS enabled and a public read policy. Do not modify `LCA_Disclosure_Data_FY2025_Q4.xlsx`.
+This loads FY2025 Q4 H1B wage disclosure records into the `salary_benchmarks` table in Supabase. Apply the schema first:
+
+```bash
+# From repo root — run migration in Supabase SQL editor or via CLI
+cat supabase/migrations/001_salary_benchmarks.sql
+```
+
+Set `SUPABASE_URL` and `SUPABASE_KEY` (service role) in `.env`, then run the loader. Upserts use `case_number` as the conflict key. Do not modify `LCA_Disclosure_Data_FY2025_Q4.xlsx`.
 
 ---
 

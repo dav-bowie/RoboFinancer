@@ -37,12 +37,9 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
           'vendor-recharts': ['recharts'],
-          'vendor-mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
           'vendor-supabase': ['@supabase/supabase-js'],
-          'vendor-radix': [
-            '@radix-ui/react-select', '@radix-ui/react-slider', '@radix-ui/react-tabs',
-            '@radix-ui/react-dialog', '@radix-ui/react-tooltip', '@radix-ui/react-dropdown-menu',
-          ],
+          'vendor-radix': ['@radix-ui/react-slider'],
+          'vendor-flow': ['@xyflow/react'],
         },
       },
     },
