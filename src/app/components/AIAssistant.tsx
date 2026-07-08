@@ -13,6 +13,7 @@ interface Context {
   city: string;
   totalComp: number;
   netTakeHome: number;
+  spendableTakeHome?: number;
   grossSalary: number;
   state: string;
   retirementRate: number;
@@ -77,12 +78,17 @@ function marginalInfo(ctx: Context): { label: string; rate: number; taxable: num
   return { label, rate: parseFloat(label) / 100, taxable };
 }
 
+function spendableAnnual(ctx: Context): number {
+  return ctx.spendableTakeHome ?? ctx.netTakeHome;
+}
+
 function buildTaxBreakdown(ctx: Context): string {
   const total = totalTaxesOf(ctx);
   const gross = ctx.grossSalary || 0;
   const effective = gross > 0 ? ((total / gross) * 100).toFixed(1) : "0";
-  const keep = gross > 0 ? (((gross - total) / gross) * 100).toFixed(1) : "0";
-  const monthly = ctx.netTakeHome / 12;
+  const keep = gross > 0 ? ((spendableAnnual(ctx) / gross) * 100).toFixed(1) : "0";
+  const spendable = spendableAnnual(ctx);
+  const monthly = spendable / 12;
   const lines = [
     `Your total tax burden is about **${fmtCurrency(total)}/yr**. Based on your numbers:`,
     ``,
@@ -96,7 +102,7 @@ function buildTaxBreakdown(ctx: Context): string {
   }
   lines.push(
     ``,
-    `That's an effective tax rate of **${effective}%** on your ${fmtCurrency(gross)} gross — you keep **${keep}%** as take-home (${fmtCurrency(ctx.netTakeHome)}/yr, ${fmtCurrency(monthly)}/mo).`,
+    `That's an effective tax rate of **${effective}%** on your ${fmtCurrency(gross)} gross — **${fmtCurrency(spendable)}/yr spendable** (${fmtCurrency(monthly)}/mo after post-tax Roth IRA).`,
     ``,
     `Next: open the Take-Home tab and nudge your 401(k) rate up to watch federal and state tax drop.`
   );
@@ -140,7 +146,7 @@ function buildEffectiveRateAnswer(ctx: Context): string {
   const gross = ctx.grossSalary || 0;
   const total = totalTaxesOf(ctx);
   const effective = gross > 0 ? ((total / gross) * 100).toFixed(1) : "0";
-  const keep = gross > 0 ? (((gross - total) / gross) * 100).toFixed(1) : "0";
+  const keep = gross > 0 ? ((spendableAnnual(ctx) / gross) * 100).toFixed(1) : "0";
   const { label: marginal } = marginalInfo(ctx);
   return [
     `Two different numbers people often mix up:`,
@@ -148,7 +154,7 @@ function buildEffectiveRateAnswer(ctx: Context): string {
     `• **Effective rate: ${effective}%** — your total taxes (${fmtCurrency(total)}) divided by your ${fmtCurrency(gross)} gross. It's what you actually pay across all your income.`,
     `• **Marginal rate: ${marginal}** — the federal rate on your *next* dollar earned. It looks scarier, but it only applies to the top slice of your income, not the whole thing.`,
     ``,
-    `Net effect: you keep about **${keep}%** of gross (${fmtCurrency(ctx.netTakeHome)}/yr).`,
+    `Net effect: **${fmtCurrency(spendableAnnual(ctx))}/yr spendable** (${keep}% of gross after taxes and post-tax Roth IRA).`,
     ``,
     `Next: try a raise scenario in the Take-Home tab to see how only the top slice gets taxed at the marginal rate.`,
   ].join("\n");
@@ -349,8 +355,10 @@ export function AIAssistant({ context }: { context: Context }) {
       gross_salary: context.grossSalary ?? null,
       state: context.state ?? null,
       filing_status: context.filingStatus ?? null,
-      take_home: context.netTakeHome ?? null,
-      monthly_take_home: context.netTakeHome ? context.netTakeHome / 12 : null,
+      take_home: context.spendableTakeHome ?? context.netTakeHome ?? null,
+      monthly_take_home: (context.spendableTakeHome ?? context.netTakeHome)
+        ? (context.spendableTakeHome ?? context.netTakeHome)! / 12
+        : null,
       k401_amount: context.k401Amount ?? null,
       k401_type: context.k401Type ?? null,
       market_percentile: context.percentile ?? null,

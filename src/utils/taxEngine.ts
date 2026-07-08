@@ -16,6 +16,8 @@ export interface TaxInputs {
   traditional401k: number;
   /** After-tax 401k contribution in dollars. Does NOT reduce taxable income. */
   roth401k: number;
+  /** HSA contribution — reduces federal taxable income only */
+  hsaContrib?: number;
 }
 
 export interface TaxBreakdown {
@@ -59,21 +61,23 @@ export interface TaxBreakdown {
  *   // federalTax: ~7351, stateTax: ~3209, netTakeHome: ~51627
  */
 export function calcFullBreakdown(inputs: TaxInputs): TaxBreakdown {
-  const { gross, filingStatus, state, traditional401k, roth401k } = inputs;
+  const { gross, filingStatus, state, traditional401k, roth401k, hsaContrib = 0 } = inputs;
 
   const stdDeduction = STANDARD_DEDUCTION_2024[filingStatus];
-  const federalTaxableIncome = Math.max(0, gross - stdDeduction - traditional401k);
+  const federalTaxableIncome = Math.max(0, gross - stdDeduction - traditional401k - hsaContrib);
   const stateTaxableIncome = Math.max(0, gross - traditional401k);
 
   const federalTax = calcFederalTax(federalTaxableIncome, filingStatus);
   const stateTax = calcStateTax(stateTaxableIncome, state);
 
   const socialSecurity = Math.min(gross, SS_WAGE_BASE_2024) * SS_RATE;
-  const medicare = gross * MEDICARE_RATE;
+  const medicareThreshold = filingStatus === 'married' ? 250000 : 200000;
+  const medicare =
+    gross * MEDICARE_RATE + Math.max(0, gross - medicareThreshold) * 0.009;
   const sdi = state === 'CA' ? gross * CA_SDI_RATE : 0;
 
   const totalDeductions =
-    federalTax + stateTax + socialSecurity + medicare + sdi + traditional401k + roth401k;
+    federalTax + stateTax + socialSecurity + medicare + sdi + traditional401k + roth401k + hsaContrib;
   const netTakeHome = gross - totalDeductions;
 
   return {

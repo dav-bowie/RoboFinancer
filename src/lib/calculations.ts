@@ -1,5 +1,12 @@
 // Tax calculation utilities for RoboFinancer
 
+import { IRS_401K_ELECTIVE_DEFERRAL_2026 } from "./contributionLimits";
+import { calcFullBreakdown } from "../utils/taxEngine";
+import {
+  FEDERAL_BRACKETS_MARRIED_2024,
+  FEDERAL_BRACKETS_SINGLE_2024,
+} from "../data/taxBrackets";
+
 export interface TaxBreakdown {
   gross: number;
   federalTax: number;
@@ -11,164 +18,37 @@ export interface TaxBreakdown {
   netTakeHome: number;
 }
 
-interface Bracket {
-  limit: number;
-  rate: number;
-}
-
-function calcMarginalTax(income: number, brackets: Bracket[]): number {
-  let tax = 0;
-  let prev = 0;
-  for (const { limit, rate } of brackets) {
-    if (income <= prev) break;
-    const taxable = Math.min(income, limit) - prev;
-    tax += taxable * rate;
-    prev = limit;
-    if (limit === Infinity) break;
-  }
-  return tax;
-}
-
-const FEDERAL_BRACKETS_SINGLE_2024: Bracket[] = [
-  { limit: 11600, rate: 0.10 },
-  { limit: 47150, rate: 0.12 },
-  { limit: 100525, rate: 0.22 },
-  { limit: 191950, rate: 0.24 },
-  { limit: 243725, rate: 0.32 },
-  { limit: 609350, rate: 0.35 },
-  { limit: Infinity, rate: 0.37 },
-];
-
-const FEDERAL_BRACKETS_MARRIED_2024: Bracket[] = [
-  { limit: 23200, rate: 0.10 },
-  { limit: 94300, rate: 0.12 },
-  { limit: 201050, rate: 0.22 },
-  { limit: 383900, rate: 0.24 },
-  { limit: 487450, rate: 0.32 },
-  { limit: 731200, rate: 0.35 },
-  { limit: Infinity, rate: 0.37 },
-];
-
-const STATE_BRACKETS: Record<string, Bracket[]> = {
-  CA: [
-    { limit: 10412, rate: 0.01 },
-    { limit: 24684, rate: 0.02 },
-    { limit: 38959, rate: 0.04 },
-    { limit: 54081, rate: 0.06 },
-    { limit: 68350, rate: 0.08 },
-    { limit: 349137, rate: 0.093 },
-    { limit: 418961, rate: 0.103 },
-    { limit: 698274, rate: 0.113 },
-    { limit: 1000000, rate: 0.123 },
-    { limit: Infinity, rate: 0.133 },
-  ],
-  NY: [
-    { limit: 17150, rate: 0.04 },
-    { limit: 23600, rate: 0.045 },
-    { limit: 27900, rate: 0.0525 },
-    { limit: 161550, rate: 0.0585 },
-    { limit: 323200, rate: 0.0625 },
-    { limit: 2155350, rate: 0.0685 },
-    { limit: Infinity, rate: 0.0965 },
-  ],
-  NJ: [
-    { limit: 20000, rate: 0.014 },
-    { limit: 35000, rate: 0.0175 },
-    { limit: 40000, rate: 0.035 },
-    { limit: 75000, rate: 0.05525 },
-    { limit: 500000, rate: 0.0637 },
-    { limit: 1000000, rate: 0.0897 },
-    { limit: Infinity, rate: 0.1075 },
-  ],
-  OR: [
-    { limit: 18400, rate: 0.0475 },
-    { limit: 250000, rate: 0.0675 },
-    { limit: Infinity, rate: 0.099 },
-  ],
-  MN: [
-    { limit: 31690, rate: 0.0535 },
-    { limit: 104090, rate: 0.068 },
-    { limit: 193240, rate: 0.0785 },
-    { limit: Infinity, rate: 0.0985 },
-  ],
-};
-
-// Flat rate states
-const FLAT_RATE_STATES: Record<string, number> = {
-  IL: 0.0495,
-  MA: 0.05,
-  CO: 0.044,
-  GA: 0.0549,
-  PA: 0.0307,
-  NC: 0.045,
-  AZ: 0.025,
-  UT: 0.0465,
-  ID: 0.058,
-  KY: 0.045,
-  MI: 0.0425,
-};
-
-// Zero income tax states
-const ZERO_TAX_STATES = new Set(['TX', 'WA', 'FL', 'NV', 'TN', 'SD', 'WY', 'AK', 'NH']);
-
-export function calcStateTax(income: number, stateCode: string): number {
-  if (ZERO_TAX_STATES.has(stateCode)) return 0;
-  if (FLAT_RATE_STATES[stateCode]) return income * FLAT_RATE_STATES[stateCode];
-  if (STATE_BRACKETS[stateCode]) return calcMarginalTax(income, STATE_BRACKETS[stateCode]);
-  return income * 0.05; // fallback estimate
-}
-
-const SS_WAGE_BASE_2024 = 168600;
-
-export function calcFICA(gross: number, surtaxThreshold = 200000): { socialSecurity: number; medicare: number } {
-  const socialSecurity = Math.min(gross, SS_WAGE_BASE_2024) * 0.062;
-  const medicare = gross * 0.0145 + Math.max(0, gross - surtaxThreshold) * 0.009;
-  return { socialSecurity, medicare };
-}
-
 export function calcTakeHome(
   gross: number,
   filingStatus: 'single' | 'married',
   stateCode: string,
   retirementRate: number,
   retirementType: 'traditional' | 'roth' = 'traditional',
-  hsaContrib: number = 0
+  hsaContrib: number = 0,
+  k401Limit: number = IRS_401K_ELECTIVE_DEFERRAL_2026,
 ): TaxBreakdown {
-  const stdDeduction = filingStatus === 'married' ? 29200 : 14600;
-  // 401(k) contribution amount (cap at IRS 2026 elective deferral limit)
-  const contribution401k = Math.min(gross * (retirementRate / 100), 24500);
+  const contribution401k = Math.min(gross * (retirementRate / 100), k401Limit, gross);
+  const traditional401k = retirementType === 'traditional' ? contribution401k : 0;
+  const roth401k = retirementType === 'roth' ? contribution401k : 0;
 
-  // Roth contributions are post-tax and should NOT reduce taxable income.
-  // Only traditional (pre-tax) 401k reduces federal/state taxable income.
-  const retirement401kPreTax = retirementType === 'traditional' ? contribution401k : 0;
-
-  // HSA reduces Federal AGI only (not state, not FICA)
-  const federalTaxableIncome = Math.max(0, gross - stdDeduction - retirement401kPreTax - hsaContrib);
-  const brackets = filingStatus === 'married' ? FEDERAL_BRACKETS_MARRIED_2024 : FEDERAL_BRACKETS_SINGLE_2024;
-  const federalTax = calcMarginalTax(federalTaxableIncome, brackets);
-
-  // State taxable income reduced by pre-tax 401k only (HSA not deductible at state level in most states)
-  const stateTax = calcStateTax(gross - retirement401kPreTax, stateCode);
-
-  // Additional Medicare surtax (0.9%) threshold depends on filing status
-  const additionalMedicareSurtaxThreshold = filingStatus === 'married' ? 250000 : 200000;
-  const { socialSecurity, medicare } = calcFICA(gross, additionalMedicareSurtaxThreshold);
-
-  // California SDI (employee) - 1.1% of gross salary for CA
-  const caSDI = stateCode === 'CA' ? gross * 0.011 : 0;
-
-  // netTakeHome subtracts the actual contribution (whether roth or traditional) and HSA
-  const netTakeHome = gross - federalTax - stateTax - socialSecurity - medicare - contribution401k - caSDI - hsaContrib;
+  const result = calcFullBreakdown({
+    gross,
+    filingStatus,
+    state: stateCode,
+    traditional401k,
+    roth401k,
+    hsaContrib,
+  });
 
   return {
-    gross,
-    federalTax,
-    stateTax,
-    socialSecurity,
-    medicare,
+    gross: result.gross,
+    federalTax: result.federalTax,
+    stateTax: result.stateTax,
+    socialSecurity: result.socialSecurity,
+    medicare: result.medicare,
     retirement401k: contribution401k,
-    caSDI,
-    netTakeHome,
+    caSDI: result.sdi,
+    netTakeHome: result.netTakeHome,
   };
 }
 

@@ -1,21 +1,36 @@
 import { useState, useMemo, useEffect } from "react";
-import { ArrowRight, TrendingUp, TrendingDown, Minus, ExternalLink } from "lucide-react";
+import { ArrowRight, TrendingUp, TrendingDown, Minus, ExternalLink, SlidersHorizontal, Link2 } from "lucide-react";
+import { toast } from "sonner";
 import { calcTakeHome, STATE_OPTIONS, CITIES, COST_OF_LIVING_INDEX, fmtCurrency } from "../../lib/calculations";
+import type { OfferComparisonSnapshot, OfferInputsSnapshot } from "../../lib/offerUrlState";
+import {
+  computeWeightedVerdict,
+  COMP_FOCUS_OPTIONS,
+  formatHousingRange,
+  getHousingPricing,
+  WORK_STYLE_LABELS,
+  type UserPreferences,
+  type WorkStyle,
+  type CompFocus,
+} from "../../lib/offerScoring";
+import { RangeSlider } from "./ui/range-slider";
 
-interface OfferInputs {
-  label: string;
-  company: string;
-  state: string;
-  city: string;
-  baseSalary: number;
-  bonus: number;
-  equity: number;
-  retirementRate: number;
-  commuteCost: number;
-  commuteHrsWeek: number;
+interface OfferInputs extends OfferInputsSnapshot {}
+
+interface TaxSettings {
+  filingStatus: "single" | "married";
+  k401Type: "traditional" | "roth";
+  hsaAmount: number;
 }
 
-// Teleport urban area slugs for supported cities
+interface Props {
+  taxSettings: TaxSettings;
+  comparison: OfferComparisonSnapshot;
+  onComparisonChange: (snapshot: OfferComparisonSnapshot) => void;
+  onGoToTakeHome?: () => void;
+  isActive?: boolean;
+}
+
 const TELEPORT_SLUGS: Record<string, string> = {
   "San Francisco, CA": "san-francisco-bay-area",
   "San Jose, CA": "san-jose",
@@ -60,18 +75,138 @@ async function fetchTeleportColScore(city: string): Promise<number | null> {
   }
 }
 
-function useTeleportScore(city: string): TeleportScore {
+function useTeleportScore(city: string, enabled: boolean): TeleportScore {
   const [score, setScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     setLoading(true);
     fetchTeleportColScore(city).then((s) => {
-      if (active) { setScore(s); setLoading(false); }
+      if (active) {
+        setScore(s);
+        setLoading(false);
+        if (TELEPORT_SLUGS[city] && s === null) {
+          toast.error(`Could not load Teleport cost-of-living data for ${city.split(",")[0]}.`);
+        }
+      }
     });
-    return () => { active = false; };
-  }, [city]);
+    return () => {
+      active = false;
+    };
+  }, [city, enabled]);
   return { score, loading };
+}
+
+function PreferenceSlider({
+  label,
+  hint,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+  leftLabel,
+  rightLabel,
+  displayValue,
+}: {
+  label: string;
+  hint?: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+  leftLabel: string;
+  rightLabel: string;
+  displayValue?: string;
+}) {
+  return (
+    <div>
+      <div className="flex justify-between mb-1.5">
+        <label className="text-xs text-muted-foreground">{label}</label>
+        {displayValue && <span className="font-mono text-xs text-foreground">{displayValue}</span>}
+      </div>
+      <RangeSlider min={min} max={max} step={step} value={value} onChange={onChange} accentColor="#10b981" />
+      <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
+        <span>{leftLabel}</span>
+        <span>{rightLabel}</span>
+      </div>
+      {hint && <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function OptionButtons<T extends string>({
+  label,
+  hint,
+  options,
+  value,
+  onChange,
+  columns = 3,
+}: {
+  label: string;
+  hint?: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  columns?: 2 | 3;
+}) {
+  return (
+    <div>
+      <label className="block mb-2 text-xs text-muted-foreground">{label}</label>
+      <div className={`grid gap-2 ${columns === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`py-2 px-2 rounded border text-xs transition-colors ${
+              value === option.value
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {hint && <p className="text-[11px] text-muted-foreground mt-1.5">{hint}</p>}
+    </div>
+  );
+}
+
+function HousingLocationCard({
+  city,
+  company,
+  household,
+}: {
+  city: string;
+  company: string;
+  household: UserPreferences["household"];
+}) {
+  const pricing = getHousingPricing(city, household);
+  return (
+    <div className="rounded border border-border bg-secondary/40 p-3 space-y-2">
+      <div className="text-xs text-foreground font-medium">{company}</div>
+      <div className="text-[11px] text-muted-foreground">{city}</div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Min</div>
+          <div className="font-mono text-xs text-foreground">{fmtCurrency(pricing.min)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Avg</div>
+          <div className="font-mono text-xs text-primary">{fmtCurrency(pricing.avg)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Max</div>
+          <div className="font-mono text-xs text-foreground">{fmtCurrency(pricing.max)}</div>
+        </div>
+      </div>
+      <div className="text-[10px] text-muted-foreground">Estimated monthly rent · {household === "couple" ? "2BR" : "1BR"}</div>
+    </div>
+  );
 }
 
 function OfferColumn({
@@ -128,6 +263,26 @@ function OfferColumn({
         </div>
       </div>
 
+      <div>
+        <label className="block mb-2 text-xs text-muted-foreground">Work Arrangement</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(["remote", "hybrid", "in_office"] as const).map((style) => (
+            <button
+              key={style}
+              type="button"
+              onClick={() => onChange({ workStyle: style })}
+              className={`py-2 px-2 rounded border text-xs transition-colors ${
+                offer.workStyle === style
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {WORK_STYLE_LABELS[style]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {[
         { label: "Base Salary", key: "baseSalary" as const },
         { label: "Annual Bonus", key: "bonus" as const },
@@ -152,15 +307,14 @@ function OfferColumn({
           <label className="text-xs text-muted-foreground">401(k) Rate</label>
           <span className="font-mono text-xs text-foreground">{offer.retirementRate}%</span>
         </div>
-        <input
-          type="range"
+        <RangeSlider
           min={0}
           max={23}
           step={1}
           value={offer.retirementRate}
-          onChange={(e) => onChange({ retirementRate: Number(e.target.value) })}
-          className="w-full h-1.5 appearance-none rounded-full cursor-pointer"
-          style={{ accentColor: "#10b981" }}
+          onChange={(retirementRate) => onChange({ retirementRate })}
+          accentColor="#10b981"
+          aria-label="401(k) contribution rate"
         />
       </div>
 
@@ -191,60 +345,91 @@ function OfferColumn({
   );
 }
 
-export function OfferModule() {
-  const [current, setCurrent] = useState<OfferInputs>({
-    label: "Current Role",
-    company: "Acme Corp",
-    state: "CA",
-    city: "San Francisco, CA",
-    baseSalary: 185000,
-    bonus: 20000,
-    equity: 60000,
-    retirementRate: 6,
-    commuteCost: 180,
-    commuteHrsWeek: 8,
-  });
+export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoToTakeHome, isActive = true }: Props) {
+  const { current, newOffer, prefs } = comparison;
+  const setCurrent = (patch: Partial<OfferInputs>) =>
+    onComparisonChange({ ...comparison, current: { ...current, ...patch } });
+  const setNewOffer = (patch: Partial<OfferInputs>) =>
+    onComparisonChange({ ...comparison, newOffer: { ...newOffer, ...patch } });
+  const setPrefs = (updater: UserPreferences | ((p: UserPreferences) => UserPreferences)) => {
+    const next = typeof updater === "function" ? updater(prefs) : updater;
+    onComparisonChange({ ...comparison, prefs: next });
+  };
 
-  const [newOffer, setNewOffer] = useState<OfferInputs>({
-    label: "New Offer",
-    company: "Startup Co",
-    state: "WA",
-    city: "Seattle, WA",
-    baseSalary: 210000,
-    bonus: 25000,
-    equity: 80000,
-    retirementRate: 6,
-    commuteCost: 120,
-    commuteHrsWeek: 5,
-  });
+  const [showPrefs, setShowPrefs] = useState(true);
 
-  const currTeleport = useTeleportScore(current.city);
-  const nextTeleport = useTeleportScore(newOffer.city);
+  const currTeleport = useTeleportScore(current.city, isActive);
+  const nextTeleport = useTeleportScore(newOffer.city, isActive);
 
   const calc = (o: OfferInputs) => {
     const totalComp = o.baseSalary + o.bonus + o.equity;
-    const taxBreakdown = calcTakeHome(o.baseSalary + o.bonus, "single", o.state, o.retirementRate);
+    const taxBreakdown = calcTakeHome(
+      o.baseSalary + o.bonus,
+      taxSettings.filingStatus,
+      o.state,
+      o.retirementRate,
+      taxSettings.k401Type,
+      taxSettings.hsaAmount,
+    );
     const annualCommuteCost = o.commuteCost * 12;
     const annualCommuteTimeHrs = o.commuteHrsWeek * 50;
     const col = COST_OF_LIVING_INDEX[o.city] || 100;
-    // True take-home = net + equity (vested) - commute
     const trueAnnual = taxBreakdown.netTakeHome + o.equity - annualCommuteCost;
-    return { totalComp, taxBreakdown, annualCommuteCost, annualCommuteTimeHrs, col, trueAnnual };
+    const adjustedTakeHome = trueAnnual / (col / 100);
+    return { totalComp, taxBreakdown, annualCommuteCost, annualCommuteTimeHrs, col, trueAnnual, adjustedTakeHome };
   };
 
-  const curr = useMemo(() => calc(current), [current]);
-  const next = useMemo(() => calc(newOffer), [newOffer]);
+  const curr = useMemo(() => calc(current), [current, taxSettings]);
+  const next = useMemo(() => calc(newOffer), [newOffer, taxSettings]);
 
-  const currAdjustedTakeHome = curr.trueAnnual / (curr.col / 100);
-  const nextAdjustedTakeHome = next.trueAnnual / (next.col / 100);
+  const impliedHourlyRate = Math.round(
+    ((curr.taxBreakdown.netTakeHome + next.taxBreakdown.netTakeHome) / 2) / 2000,
+  );
 
-  const delta = nextAdjustedTakeHome - currAdjustedTakeHome;
-  const deltaRaw = next.taxBreakdown.netTakeHome + newOffer.equity - curr.taxBreakdown.netTakeHome - current.equity;
+  const verdict = useMemo(
+    () =>
+      computeWeightedVerdict(
+        {
+          company: current.company,
+          city: current.city,
+          baseSalary: current.baseSalary,
+          bonus: current.bonus,
+          equity: current.equity,
+          retirementRate: current.retirementRate,
+          commuteCost: current.commuteCost,
+          commuteHrsWeek: current.commuteHrsWeek,
+          workStyle: current.workStyle,
+          adjustedTakeHome: curr.adjustedTakeHome,
+          netTakeHome: curr.taxBreakdown.netTakeHome,
+          annualCommuteCost: curr.annualCommuteCost,
+          annualCommuteTimeHrs: curr.annualCommuteTimeHrs,
+          colIndex: curr.col,
+        },
+        {
+          company: newOffer.company,
+          city: newOffer.city,
+          baseSalary: newOffer.baseSalary,
+          bonus: newOffer.bonus,
+          equity: newOffer.equity,
+          retirementRate: newOffer.retirementRate,
+          commuteCost: newOffer.commuteCost,
+          commuteHrsWeek: newOffer.commuteHrsWeek,
+          workStyle: newOffer.workStyle,
+          adjustedTakeHome: next.adjustedTakeHome,
+          netTakeHome: next.taxBreakdown.netTakeHome,
+          annualCommuteCost: next.annualCommuteCost,
+          annualCommuteTimeHrs: next.annualCommuteTimeHrs,
+          colIndex: next.col,
+        },
+        prefs,
+        impliedHourlyRate,
+      ),
+    [current, newOffer, curr, next, prefs, impliedHourlyRate],
+  );
 
-  const winner = delta > 5000 ? "new" : delta < -5000 ? "current" : "tie";
-
-  // Hourly rate for commute time valuation
-  const impliedHourlyRate = Math.round(((curr.taxBreakdown.netTakeHome + next.taxBreakdown.netTakeHome) / 2) / 2000);
+  const { winner, weightedScore, dimensions, summary, rawFinancialDelta } = verdict;
+  const deltaRaw =
+    next.taxBreakdown.netTakeHome + newOffer.equity - curr.taxBreakdown.netTakeHome - current.equity;
 
   const Row = ({
     label,
@@ -269,28 +454,141 @@ export function OfferModule() {
       }`}
     >
       <div className="text-xs text-muted-foreground w-44 shrink-0">{label}</div>
-      <div className={`flex-1 text-right ${mono ? "font-mono" : ""} text-sm ${currColor ?? "text-foreground"}`}>{currVal}</div>
+      <div className={`flex-1 text-right ${mono ? "font-mono" : ""} text-sm ${currColor ?? "text-foreground"}`}>
+        {currVal}
+      </div>
       <ArrowRight size={12} className="text-muted-foreground shrink-0" />
-      <div className={`flex-1 text-left ${mono ? "font-mono" : ""} text-sm ${newColor ?? "text-foreground"}`}>{newVal}</div>
+      <div className={`flex-1 text-left ${mono ? "font-mono" : ""} text-sm ${newColor ?? "text-foreground"}`}>
+        {newVal}
+      </div>
     </div>
   );
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <OfferColumn
-          offer={current}
-          onChange={(u) => setCurrent((p) => ({ ...p, ...u }))}
-          label="Current Role"
-        />
-        <OfferColumn
-          offer={newOffer}
-          onChange={(u) => setNewOffer((p) => ({ ...p, ...u }))}
-          label="New Offer"
-        />
+      <div className="rounded-lg border border-border bg-secondary/30 px-4 py-3 flex items-start gap-2">
+        <Link2 size={14} className="text-primary shrink-0 mt-0.5" />
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Tax estimates use your{" "}
+          <span className="text-foreground">Take-Home</span> settings:{" "}
+          <span className="font-mono text-foreground">
+            {taxSettings.filingStatus === "married" ? "Married" : "Single"}
+          </span>
+          ,{" "}
+          <span className="font-mono text-foreground">
+            {taxSettings.k401Type === "roth" ? "Roth 401(k)" : "Traditional 401(k)"}
+          </span>
+          {taxSettings.hsaAmount > 0 && (
+            <>
+              , HSA <span className="font-mono text-foreground">{fmtCurrency(taxSettings.hsaAmount)}/yr</span>
+            </>
+          )}
+          .{" "}
+          {onGoToTakeHome ? (
+            <button type="button" onClick={onGoToTakeHome} className="text-primary hover:underline">
+              Update them on the Take-Home tab
+            </button>
+          ) : (
+            <>Update them on the Take-Home tab</>
+          )}{" "}
+          to change offer tax math.
+        </p>
       </div>
 
-      {/* Comparison table */}
+      <div className="rounded border border-border bg-card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowPrefs((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 border-b border-border hover:bg-secondary/40 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={14} className="text-primary" />
+            <span className="text-xs tracking-widest uppercase text-muted-foreground">Your Preferences & Lifestyle</span>
+          </div>
+          <span className="text-xs text-muted-foreground">{showPrefs ? "Hide" : "Show"}</span>
+        </button>
+
+        {showPrefs && (
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-5">
+            <OptionButtons<CompFocus>
+              label="Cash now vs. long-term upside"
+              options={COMP_FOCUS_OPTIONS.map(({ value, label }) => ({ value, label }))}
+              value={prefs.compFocus}
+              onChange={(compFocus) => setPrefs((p) => ({ ...p, compFocus }))}
+              hint={COMP_FOCUS_OPTIONS.find((o) => o.value === prefs.compFocus)?.hint}
+            />
+
+            <OptionButtons<WorkStyle>
+              label="Work preference"
+              options={(["remote", "hybrid", "in_office"] as const).map((value) => ({
+                value,
+                label: WORK_STYLE_LABELS[value],
+              }))}
+              value={prefs.workPreference}
+              onChange={(workPreference) => setPrefs((p) => ({ ...p, workPreference }))}
+              hint="How well each offer matches your preferred work arrangement."
+            />
+
+            <PreferenceSlider
+              label="Income stability priority"
+              min={0}
+              max={100}
+              step={5}
+              value={prefs.financialStability}
+              onChange={(financialStability) => setPrefs((p) => ({ ...p, financialStability }))}
+              leftLabel="Flexible"
+              rightLabel="Stability-first"
+              displayValue={`${prefs.financialStability}%`}
+            />
+            <PreferenceSlider
+              label="Commute importance"
+              min={0}
+              max={100}
+              step={5}
+              value={prefs.commuteImportance}
+              onChange={(commuteImportance) => setPrefs((p) => ({ ...p, commuteImportance }))}
+              leftLabel="Don't care much"
+              rightLabel="Very important"
+              displayValue={`${prefs.commuteImportance}%`}
+            />
+
+            <div className="md:col-span-2 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <label className="text-xs text-muted-foreground">Housing by location</label>
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+                  {(["single", "couple"] as const).map((household) => (
+                    <button
+                      key={household}
+                      type="button"
+                      onClick={() => setPrefs((p) => ({ ...p, household }))}
+                      className={`py-1.5 px-3 rounded border text-xs transition-colors ${
+                        prefs.household === household
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {household === "single" ? "1BR" : "2BR"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <HousingLocationCard city={current.city} company={current.company} household={prefs.household} />
+                <HousingLocationCard city={newOffer.city} company={newOffer.company} household={prefs.household} />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Rent ranges are estimated from each city&apos;s cost-of-living index and used automatically in your recommendation.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <OfferColumn offer={current} onChange={(u) => setCurrent((p) => ({ ...p, ...u }))} label="Current Role" />
+        <OfferColumn offer={newOffer} onChange={(u) => setNewOffer((p) => ({ ...p, ...u }))} label="New Offer" />
+      </div>
+
       <div className="rounded border border-border bg-card overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <span className="text-xs tracking-widest uppercase text-muted-foreground">Side-by-Side Comparison</span>
@@ -322,6 +620,17 @@ export function OfferModule() {
             highlight
           />
           <Row
+            label="Work Arrangement"
+            currVal={WORK_STYLE_LABELS[current.workStyle]}
+            newVal={WORK_STYLE_LABELS[newOffer.workStyle]}
+            mono={false}
+          />
+          <Row
+            label="Est. Monthly Rent"
+            currVal={formatHousingRange(getHousingPricing(current.city, prefs.household))}
+            newVal={formatHousingRange(getHousingPricing(newOffer.city, prefs.household))}
+          />
+          <Row
             label="Annual Commute Cost"
             currVal={`-${fmtCurrency(curr.annualCommuteCost)}`}
             newVal={`-${fmtCurrency(next.annualCommuteCost)}`}
@@ -334,12 +643,7 @@ export function OfferModule() {
             newVal={`${next.annualCommuteTimeHrs} hrs`}
             mono={false}
           />
-          <Row
-            label="Cost of Living Index"
-            currVal={`${curr.col}`}
-            newVal={`${next.col}`}
-          />
-          {/* Teleport live CoL score */}
+          <Row label="Cost of Living Index" currVal={`${curr.col}`} newVal={`${next.col}`} />
           <Row
             label={`Teleport CoL Score${currTeleport.loading || nextTeleport.loading ? " …" : ""}`}
             currVal={currTeleport.score !== null ? `${currTeleport.score}/10` : "—"}
@@ -348,34 +652,70 @@ export function OfferModule() {
           />
           <Row
             label="CoL-Adjusted Take-Home"
-            currVal={fmtCurrency(currAdjustedTakeHome)}
-            newVal={fmtCurrency(nextAdjustedTakeHome)}
+            currVal={fmtCurrency(curr.adjustedTakeHome)}
+            newVal={fmtCurrency(next.adjustedTakeHome)}
             highlight
           />
           <Row
-            label="Adjusted Δ vs. Current"
+            label="Financial Δ (unweighted)"
             currVal="—"
-            newVal={`${delta >= 0 ? "+" : ""}${fmtCurrency(delta)}`}
-            newColor={delta > 5000 ? "text-emerald-400" : delta < -5000 ? "text-red-400" : "text-muted-foreground"}
+            newVal={`${rawFinancialDelta >= 0 ? "+" : ""}${fmtCurrency(rawFinancialDelta)}`}
+            newColor={
+              rawFinancialDelta > 5000 ? "text-emerald-400" : rawFinancialDelta < -5000 ? "text-red-400" : "text-muted-foreground"
+            }
           />
         </div>
       </div>
 
-      {/* Commute time cost note */}
+      <div className="rounded border border-border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <span className="text-xs tracking-widest uppercase text-muted-foreground">Weighted Score Breakdown</span>
+        </div>
+        <div className="divide-y divide-border">
+          {dimensions.map((d) => (
+            <div key={d.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+              <div className="sm:w-44 shrink-0">
+                <div className="text-xs text-foreground">{d.label}</div>
+                <div className="text-[11px] text-muted-foreground">{Math.round(d.weight * 100)}% weight</div>
+              </div>
+              <div className="flex-1">
+                <div className="h-2 rounded-full bg-secondary border border-border overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      d.score > 0 ? "bg-emerald-500" : d.score < 0 ? "bg-amber-500" : "bg-muted-foreground/40"
+                    }`}
+                    style={{ width: `${Math.min(100, Math.abs(d.score))}%`, marginLeft: d.score < 0 ? `${100 - Math.min(100, Math.abs(d.score))}%` : 0 }}
+                  />
+                </div>
+              </div>
+              <div
+                className={`text-xs font-mono shrink-0 ${
+                  d.favors === "new" ? "text-emerald-400" : d.favors === "current" ? "text-amber-400" : "text-muted-foreground"
+                }`}
+              >
+                {d.score >= 0 ? "+" : ""}
+                {Math.round(d.score)} → {d.favors === "new" ? newOffer.company : d.favors === "current" ? current.company : "neutral"}
+              </div>
+              <p className="text-[11px] text-muted-foreground sm:basis-full">{d.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {(curr.annualCommuteTimeHrs > 0 || next.annualCommuteTimeHrs > 0) && (
         <div className="rounded border border-border bg-secondary/50 px-4 py-3">
           <p className="text-xs text-muted-foreground">
             <span className="text-foreground font-medium">Commute time cost: </span>
-            At your implied hourly rate of ~${impliedHourlyRate}/hr, {current.company}&apos;s{" "}
-            {curr.annualCommuteTimeHrs} hrs/yr of commute costs an additional{" "}
+            At your implied hourly rate of ~${impliedHourlyRate}/hr, {current.company}&apos;s {curr.annualCommuteTimeHrs}{" "}
+            hrs/yr of commute costs an additional{" "}
             <span className="font-mono text-foreground">{fmtCurrency(curr.annualCommuteTimeHrs * impliedHourlyRate)}</span> in
             time value. {newOffer.company}&apos;s commute costs{" "}
             <span className="font-mono text-foreground">{fmtCurrency(next.annualCommuteTimeHrs * impliedHourlyRate)}</span>.
+            {prefs.commuteImportance >= 50 && " This is factored into your weighted recommendation."}
           </p>
         </div>
       )}
 
-      {/* Teleport attribution */}
       {(currTeleport.score !== null || nextTeleport.score !== null) && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ExternalLink size={11} />
@@ -389,14 +729,13 @@ export function OfferModule() {
         </div>
       )}
 
-      {/* Verdict */}
       <div
         className={`rounded border p-5 ${
           winner === "new"
             ? "border-emerald-500/30 bg-emerald-500/5"
             : winner === "current"
-            ? "border-amber-500/30 bg-amber-500/5"
-            : "border-border bg-card"
+              ? "border-amber-500/30 bg-amber-500/5"
+              : "border-border bg-card"
         }`}
       >
         <div className="flex items-start gap-3">
@@ -412,42 +751,25 @@ export function OfferModule() {
           <div>
             <div
               className={`text-sm font-medium mb-2 ${
-                winner === "new"
-                  ? "text-emerald-400"
-                  : winner === "current"
-                  ? "text-amber-400"
-                  : "text-muted-foreground"
+                winner === "new" ? "text-emerald-400" : winner === "current" ? "text-amber-400" : "text-muted-foreground"
               }`}
             >
               {winner === "new"
                 ? `Take the offer at ${newOffer.company}`
                 : winner === "current"
-                ? `Stay at ${current.company}`
-                : "It's essentially a tie"}
+                  ? `Stay at ${current.company}`
+                  : "It's essentially a tie for your profile"}
             </div>
-            <p className="text-sm text-foreground">
-              {winner === "new" ? (
-                <>
-                  Based on after-tax income, cost of living in {newOffer.city}, and commute costs, the offer at{" "}
-                  {newOffer.company} is worth approximately{" "}
-                  <span className="font-mono text-emerald-400">{fmtCurrency(delta)}</span> more per year to your
-                  daily life. The raw after-tax salary delta is{" "}
-                  <span className="font-mono">{fmtCurrency(deltaRaw)}</span>.
-                </>
-              ) : winner === "current" ? (
-                <>
-                  Despite the higher gross, the new offer in {newOffer.city} loses approximately{" "}
-                  <span className="font-mono text-amber-400">{fmtCurrency(Math.abs(delta))}</span> per year in real
-                  purchasing power once cost of living, state taxes ({newOffer.state}), and commute costs are
-                  factored in.
-                </>
-              ) : (
-                <>
-                  The two offers are within{" "}
-                  <span className="font-mono">{fmtCurrency(Math.abs(delta))}</span> per year of each other in real
-                  terms. Factor in growth potential, team quality, and equity upside when deciding.
-                </>
-              )}
+            <p className="text-sm text-foreground mb-2">{summary}</p>
+            <p className="text-xs text-muted-foreground">
+              Weighted score:{" "}
+              <span className="font-mono text-foreground">
+                {weightedScore >= 0 ? "+" : ""}
+                {Math.round(weightedScore)}
+              </span>{" "}
+              (positive favors {newOffer.company}). Raw financial delta:{" "}
+              <span className="font-mono">{fmtCurrency(rawFinancialDelta)}</span> · After-tax salary+equity delta:{" "}
+              <span className="font-mono">{fmtCurrency(deltaRaw)}</span>.
             </p>
           </div>
         </div>

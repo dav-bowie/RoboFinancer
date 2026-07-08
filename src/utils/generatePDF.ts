@@ -6,6 +6,22 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+export interface CashFlowReportData {
+  grossSalary: number;
+  k401Annual: number;
+  hsaAnnual: number;
+  taxesAnnual: number;
+  monthlyTakeHome: number;
+  necessaryMonthly: number;
+  lifestyleMonthly: number;
+  savingsMonthly: number;
+  surplusMonthly: number;
+  k401Monthly: number;
+  hsaMonthly: number;
+  monthlyTaxes: number;
+  lineItems: Array<{ group: string; label: string; monthly: number }>;
+}
+
 export interface ReportData {
   reportName: string;
   reportDate: string;
@@ -29,7 +45,8 @@ export interface ReportData {
   caSDI: number;
   totalTaxes: number;
   annualTakeHome: number;
-
+  /** Full net before post-tax Roth IRA — shown in tax table only */
+  netTakeHomeBeforeRoth?: number;
   monthlyTakeHome: number;
   rent: number;
   groceries: number;
@@ -41,6 +58,7 @@ export interface ReportData {
   marginalBracket: string;
   monthlySurplus: number;
   totalToRetirement: number;
+  cashFlow?: CashFlowReportData;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,6 +151,200 @@ function drawCards(
   return y + rows * (cardH + gap) + 2;
 }
 
+function drawFlowBox(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  title: string,
+  value: string,
+  sub?: string,
+  fill: RGB = C.lightGray,
+  stroke: RGB = C.border,
+  titleColor: RGB = C.muted,
+  valueColor: RGB = C.text,
+) {
+  doc.setFillColor(...fill);
+  doc.setDrawColor(...stroke);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...titleColor);
+  doc.text(title, x + 3, y + 5);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...valueColor);
+  doc.text(value, x + 3, y + 11.5, { maxWidth: w - 6 });
+  if (sub) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...C.muted);
+    doc.text(sub, x + 3, y + h - 3, { maxWidth: w - 6 });
+  }
+}
+
+function drawArrow(doc: jsPDF, x1: number, y1: number, x2: number, y2: number, label?: string) {
+  doc.setDrawColor(...C.border);
+  doc.setLineWidth(0.35);
+  doc.line(x1, y1, x2, y2);
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const size = 1.8;
+  doc.line(x2, y2, x2 - size * Math.cos(angle - 0.4), y2 - size * Math.sin(angle - 0.4));
+  doc.line(x2, y2, x2 - size * Math.cos(angle + 0.4), y2 - size * Math.sin(angle + 0.4));
+  if (label) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...C.muted);
+    doc.text(label, (x1 + x2) / 2 + 1, (y1 + y2) / 2 - 1);
+  }
+}
+
+function drawCashFlowDiagramPage(doc: jsPDF, cf: CashFlowReportData, ML: number, MR: number, CW: number): number {
+  doc.addPage();
+  let y = 15;
+  y = sectionHeader(doc, 'MONTHLY CASH FLOW DIAGRAM', ML, y, CW);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...C.muted);
+  doc.text(
+    'How gross income flows through pre-tax deductions, take-home pay, spending tiers, and surplus — based on your inputs.',
+    ML,
+    y,
+    { maxWidth: CW },
+  );
+  y += 10;
+
+  const boxW = 52;
+  const boxH = 16;
+  const centerX = ML + CW / 2;
+
+  // Row 1: Gross income
+  drawFlowBox(doc, centerX - boxW / 2, y, boxW, boxH, 'Gross Income', fmt(cf.grossSalary), `${fmt(cf.grossSalary / 12)}/mo`, C.white, C.blue, C.muted, C.blue);
+  const grossBottom = y + boxH;
+  y += boxH + 10;
+
+  // Row 2: Deductions
+  const deductions = [
+    { label: '401(k) Pre-Tax', monthly: cf.k401Monthly, color: C.blue as RGB },
+    { label: 'HSA Pre-Tax', monthly: cf.hsaMonthly, color: C.teal as RGB },
+    { label: 'Taxes & FICA', monthly: cf.monthlyTaxes, color: C.coral as RGB },
+  ].filter((d) => d.monthly > 0);
+
+  const dedGap = 6;
+  const dedTotalW = deductions.length * boxW + (deductions.length - 1) * dedGap;
+  let dedX = centerX - dedTotalW / 2;
+  const dedY = y;
+
+  deductions.forEach((d) => {
+    drawArrow(doc, centerX, grossBottom, dedX + boxW / 2, dedY, fmt(d.monthly));
+    drawFlowBox(doc, dedX, dedY, boxW, boxH, d.label, fmt(d.monthly * 12), `${fmt(d.monthly)}/mo`, C.lightGray, d.color, C.muted, C.text);
+    dedX += boxW + dedGap;
+  });
+
+  y = dedY + boxH + 10;
+
+  // Row 3: Take-home hub
+  drawFlowBox(
+    doc,
+    centerX - boxW / 2,
+    y,
+    boxW,
+    boxH,
+    'Monthly Take-Home',
+    fmt(cf.monthlyTakeHome),
+    `${fmt(cf.monthlyTakeHome * 12)}/yr spendable`,
+    C.greenBg,
+    C.green,
+    C.muted,
+    C.green,
+  );
+  deductions.forEach((_, i) => {
+    const dedCenter = centerX - dedTotalW / 2 + i * (boxW + dedGap) + boxW / 2;
+    drawArrow(doc, dedCenter, dedY + boxH, centerX, y);
+  });
+  if (deductions.length === 0) {
+    drawArrow(doc, centerX, grossBottom, centerX, y);
+  }
+
+  const takeHomeBottom = y + boxH;
+  y += boxH + 10;
+
+  // Row 4: Spending tiers
+  const tiers = [
+    { label: 'Necessary & Essential', monthly: cf.necessaryMonthly, color: C.purple as RGB },
+    { label: 'Lifestyle', monthly: cf.lifestyleMonthly, color: [245, 158, 11] as RGB },
+    { label: 'Savings & Risk', monthly: cf.savingsMonthly, color: C.emerald as RGB },
+  ];
+  const tierGap = 6;
+  const tierTotalW = tiers.length * boxW + (tiers.length - 1) * tierGap;
+  let tierX = centerX - tierTotalW / 2;
+  const tierY = y;
+
+  tiers.forEach((t) => {
+    drawArrow(doc, centerX, takeHomeBottom, tierX + boxW / 2, tierY, fmt(t.monthly));
+    drawFlowBox(doc, tierX, tierY, boxW, boxH, t.label, fmt(t.monthly), `${fmt(t.monthly * 12)}/yr`, C.lightGray, t.color, C.muted, C.text);
+    tierX += boxW + tierGap;
+  });
+
+  y = tierY + boxH + 10;
+
+  // Row 5: Surplus
+  const surplusPositive = cf.surplusMonthly >= 0;
+  drawFlowBox(
+    doc,
+    centerX - boxW / 2,
+    y,
+    boxW,
+    boxH,
+    surplusPositive ? 'Monthly Surplus' : 'Monthly Shortage',
+    fmt(Math.abs(cf.surplusMonthly)),
+    surplusPositive ? 'Unallocated cash flow' : 'Over budget',
+    surplusPositive ? C.greenBg : [254, 242, 242] as RGB,
+    surplusPositive ? C.green : C.coral,
+    C.muted,
+    surplusPositive ? C.green : C.coral,
+  );
+  drawArrow(doc, centerX, tierY + boxH, centerX, y);
+
+  y += boxH + 12;
+
+  // Line-item detail table
+  if (cf.lineItems.length > 0) {
+    y = sectionHeader(doc, 'SPENDING LINE ITEMS (MONTHLY)', ML, y, CW);
+    autoTable(doc, {
+      startY: y,
+      margin: { left: ML, right: MR },
+      tableWidth: CW,
+      head: [['Category', 'Line Item', 'Monthly']],
+      body: cf.lineItems.map((item) => [item.group, item.label, fmt(item.monthly)]),
+      styles: {
+        fontSize: 8,
+        cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+        lineColor: C.border,
+        lineWidth: 0.15,
+        textColor: C.text,
+      },
+      headStyles: {
+        fillColor: C.lightGray,
+        textColor: C.muted,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        0: { cellWidth: CW * 0.22 },
+        1: { cellWidth: CW * 0.58 },
+        2: { cellWidth: CW * 0.2, halign: 'right' },
+      },
+      theme: 'plain',
+    });
+    return (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  return y;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function generateFinancialReport(data: ReportData): void {
@@ -174,7 +386,7 @@ export function generateFinancialReport(data: ReportData): void {
     { label: 'Gross Salary',           value: fmt(data.grossSalary),            sub: 'Before anything',          color: C.text },
     { label: 'Taxable Income (fed)',    value: fmt(data.federalTaxableIncome),   sub: 'After 401k + std deduction', color: C.text },
     { label: 'Total Taxes Paid',        value: fmt(data.totalTaxes),             sub: 'Fed + State + FICA',       color: C.coral },
-    { label: 'Annual Take-Home',        value: fmt(data.annualTakeHome),         sub: 'After all deductions',     color: C.green },
+    { label: 'Annual Spendable Take-Home', value: fmt(data.annualTakeHome),         sub: 'After taxes & post-tax Roth IRA', color: C.green },
   ], ML, y, CW, 22, 2);
   y += 2;
 
@@ -196,7 +408,11 @@ export function generateFinancialReport(data: ReportData): void {
     { label: `${data.state} state income tax`,                       value: `-${fmt(data.stateTax)}`, color: C.coral },
     ...(data.caSDI > 0 ? [{ label: 'CA SDI (1.1%)', value: `-${fmt(data.caSDI)}`, color: C.coral }] : []),
     { label: 'Total taxes',                                          value: `-${fmt(data.totalTaxes)}`, isBold: true, color: C.coral },
-    { label: 'Annual take-home',                                     value: fmt(data.annualTakeHome), isBold: true, bg: C.greenBg, color: C.green },
+    ...(data.netTakeHomeBeforeRoth != null && data.netTakeHomeBeforeRoth !== data.annualTakeHome
+      ? [{ label: 'Net before post-tax Roth IRA', value: fmt(data.netTakeHomeBeforeRoth), indent: true }]
+      : []),
+    { label: 'Post-tax Roth IRA',                                    value: data.rothIRA > 0 ? `-${fmt(data.rothIRA)}` : '—', color: data.rothIRA > 0 ? C.purple : C.muted },
+    { label: 'Spendable take-home',                                  value: fmt(data.annualTakeHome), isBold: true, bg: C.greenBg, color: C.green },
   ];
 
   autoTable(doc, {
@@ -266,16 +482,21 @@ export function generateFinancialReport(data: ReportData): void {
     { label: 'Company match',  value: data.employerMatch,  color: C.teal,     positive: true  },
   ].filter((b) => b.value > 0);
 
-  const totalBarBase = data.grossSalary + data.employerMatch;
+  const totalBarBase = data.grossSalary;
   const BAR_LABEL_W = 36;
-  const BAR_TRACK_W = CW - BAR_LABEL_W - 32;
+  const BAR_PCT_W = 14;
+  const BAR_VALUE_W = 28;
+  const BAR_TRACK_W = CW - BAR_LABEL_W - BAR_PCT_W - BAR_VALUE_W - 4;
   const BAR_H = 5.5;
   const BAR_GAP = 3.5;
 
   barItems.forEach((item) => {
-    const barFrac = Math.max(0.01, item.value / totalBarBase);
-    const filledW = Math.max(3, barFrac * BAR_TRACK_W);
-    const barPct = Math.round(barFrac * 100);
+    const barFrac = totalBarBase > 0 ? item.value / totalBarBase : 0;
+    const filledW = Math.max(2, Math.min(BAR_TRACK_W, barFrac * BAR_TRACK_W));
+    const barPct = totalBarBase > 0 ? Math.round(barFrac * 100) : 0;
+    const trackX = ML + BAR_LABEL_W;
+    const pctX = trackX + BAR_TRACK_W + 2;
+    const valueX = pctX + BAR_PCT_W;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -283,23 +504,23 @@ export function generateFinancialReport(data: ReportData): void {
     doc.text(item.label, ML, y + BAR_H - 1);
 
     doc.setFillColor(...C.lightGray);
-    doc.roundedRect(ML + BAR_LABEL_W, y, BAR_TRACK_W, BAR_H, 1.2, 1.2, 'F');
+    doc.roundedRect(trackX, y, BAR_TRACK_W, BAR_H, 1.2, 1.2, 'F');
 
-    doc.setFillColor(...item.color);
-    doc.roundedRect(ML + BAR_LABEL_W, y, filledW, BAR_H, 1.2, 1.2, 'F');
-
-    if (filledW > 14) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
-      doc.setTextColor(...C.white);
-      doc.text(`${barPct}%`, ML + BAR_LABEL_W + 2.5, y + BAR_H - 1.2);
+    if (barFrac > 0) {
+      doc.setFillColor(...item.color);
+      doc.roundedRect(trackX, y, filledW, BAR_H, 1.2, 1.2, 'F');
     }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...C.text);
+    doc.text(`${barPct}%`, pctX, y + BAR_H - 1.2);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...C.text);
     const prefix = item.positive ? '+' : '';
-    doc.text(`${prefix}${fmt(item.value)}`, ML + BAR_LABEL_W + BAR_TRACK_W + 3, y + BAR_H - 1);
+    doc.text(`${prefix}${fmt(item.value)}`, valueX, y + BAR_H - 1);
 
     y += BAR_H + BAR_GAP;
   });
@@ -311,28 +532,46 @@ export function generateFinancialReport(data: ReportData): void {
   y += 8;
 
   // ── Monthly Budget ─────────────────────────────────────
-  y = sectionHeader(doc, 'MONTHLY BUDGET (FROM TAKE-HOME)', ML, y, CW);
+  y = sectionHeader(doc, 'MONTHLY BUDGET (FROM SPENDABLE TAKE-HOME)', ML, y, CW);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...C.muted);
-  doc.text(`Monthly take-home: ${fmt(data.monthlyTakeHome)}/mo`, ML, y);
+  doc.text(`Spendable take-home: ${fmt(data.monthlyTakeHome)}/mo (after post-tax Roth IRA)`, ML, y);
   y += 6;
-
-  const rothMonthly = Math.round(data.rothIRA / 12);
-  const totalFixed = data.rent + data.groceries + data.commute + rothMonthly + data.otherFixed;
 
   type BudgetRow = { cells: [string, string]; bold?: boolean; color?: RGB; bg?: RGB; muted?: boolean };
 
-  const budgetRows: BudgetRow[] = [
-    { cells: ['Rent',                     `-${fmt(data.rent)}`]           },
-    { cells: ['Groceries',                `-${fmt(data.groceries)}`]      },
-    { cells: ['Commute (ferry/transport)', `-${fmt(data.commute)}`]       },
-    { cells: ['Roth IRA (monthly)',        `-${fmt(rothMonthly)}`]        },
-    ...(data.otherFixed > 0 ? [{ cells: ['Other fixed', `-${fmt(data.otherFixed)}`] as [string, string] }] : []),
-    { cells: ['Total fixed outflows',     `-${fmt(totalFixed)}`],  muted: true                        },
-    { cells: ['Monthly surplus (discretionary)', fmt(data.monthlySurplus)], bold: true, bg: C.greenBg, color: C.green },
-  ];
+  let budgetRows: BudgetRow[];
+
+  if (data.cashFlow && data.cashFlow.lineItems.length > 0) {
+    const totalOutflows = data.cashFlow.lineItems.reduce((sum, item) => sum + item.monthly, 0);
+    budgetRows = [
+      ...data.cashFlow.lineItems.map((item) => ({
+        cells: [`${item.group}: ${item.label}`, `-${fmt(item.monthly)}`] as [string, string],
+      })),
+      { cells: ['Total monthly outflows', `-${fmt(totalOutflows)}`], muted: true },
+      {
+        cells: ['Monthly surplus (discretionary)', fmt(data.cashFlow.surplusMonthly)],
+        bold: true,
+        bg: C.greenBg,
+        color: data.cashFlow.surplusMonthly >= 0 ? C.green : C.coral,
+      },
+    ];
+  } else {
+    const rothMonthly = Math.round(data.rothIRA / 12);
+    const totalFixed = data.rent + data.groceries + data.commute + rothMonthly + data.otherFixed;
+
+    budgetRows = [
+      { cells: ['Rent',                     `-${fmt(data.rent)}`]           },
+      { cells: ['Groceries',                `-${fmt(data.groceries)}`]      },
+      { cells: ['Commute (ferry/transport)', `-${fmt(data.commute)}`]       },
+      { cells: ['Roth IRA (monthly)',        `-${fmt(rothMonthly)}`]        },
+      ...(data.otherFixed > 0 ? [{ cells: ['Other fixed', `-${fmt(data.otherFixed)}`] as [string, string] }] : []),
+      { cells: ['Total fixed outflows',     `-${fmt(totalFixed)}`],  muted: true                        },
+      { cells: ['Monthly surplus (discretionary)', fmt(data.monthlySurplus)], bold: true, bg: C.greenBg, color: C.green },
+    ];
+  }
 
   autoTable(doc, {
     startY: y,
@@ -382,11 +621,21 @@ export function generateFinancialReport(data: ReportData): void {
 
   y += 6;
 
-  // ── Disclaimer footnote ────────────────────────────────
-  doc.setDrawColor(...C.border);
-  doc.setLineWidth(0.3);
-  doc.line(ML, y, PAGE_W - MR, y);
-  y += 5;
+  if (data.cashFlow) {
+    y = drawCashFlowDiagramPage(doc, data.cashFlow, ML, MR, CW);
+  } else {
+    doc.setDrawColor(...C.border);
+    doc.setLineWidth(0.3);
+    doc.line(ML, y, PAGE_W - MR, y);
+    y += 5;
+  }
+
+  // ── Disclaimer footnote (last page) ────────────────────
+  const lastPage = doc.getNumberOfPages();
+  doc.setPage(lastPage);
+  if (data.cashFlow) {
+    y = Math.max(y, 255);
+  }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
@@ -395,8 +644,9 @@ export function generateFinancialReport(data: ReportData): void {
     'RoboFinancer provides estimates and educational information only. Tax brackets based on IRS 2024 tables. ' +
     'This is not financial, tax, or legal advice. Consult a licensed professional before making financial decisions. ' +
     'Generated by robo-financer.vercel.app',
-    ML, y,
-    { maxWidth: CW }
+    ML,
+    y,
+    { maxWidth: CW },
   );
 
   doc.save('financial_breakdown.pdf');

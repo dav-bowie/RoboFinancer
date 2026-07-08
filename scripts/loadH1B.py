@@ -113,6 +113,7 @@ def map_to_benchmarks(df: pd.DataFrame) -> List[Dict]:
                 scraped_at = None
 
         rec = {
+            "case_number": str(row.get("LCA_CASE_NUMBER") or row.get("CASE_NUMBER") or "").strip() or None,
             "company": row.get("EMPLOYER_NAME") or None,
             "role": role or None,
             "role_normalized": role_normalized or None,
@@ -131,7 +132,8 @@ def map_to_benchmarks(df: pd.DataFrame) -> List[Dict]:
 
         records.append(rec)
 
-    return records
+    # Rows without a case number cannot be deduplicated safely
+    return [r for r in records if r.get("case_number")]
 
 
 def chunked_iterable(iterable: List, size: int):
@@ -146,7 +148,7 @@ def upsert_batches(client: Any, table: str, records: List[Dict], batch_size: int
         try:
             # Attempt upsert; supabase-py uses PostgREST under the hood.
             # If this raises an exception or returns an error, capture details.
-            res = client.table(table).upsert(batch).execute()
+            res = client.table(table).upsert(batch, on_conflict="case_number").execute()
             # supabase-py returns a response object; check for error
             err = None
             try:

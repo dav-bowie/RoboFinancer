@@ -1,106 +1,92 @@
 # Data Model — RoboFinancer
 
-## In-browser state (ephemeral, no persistence)
+## In-browser state (URL-encoded share links)
+
+User inputs live in React state and sync to URL query params via `useUrlState`, `offerUrlState`, and `budgetUrlState`. No accounts or server-side persistence.
 
 ### App-level shared state (`App.tsx`)
 
 ```typescript
 benchmarkCtx: {
-  role: string;         // e.g. 'Software Engineer'
-  level: string;        // e.g. 'L5 / Senior'
-  city: string;         // e.g. 'San Francisco, CA'
-  totalComp: number;    // base + bonus + equity, annual dollars
+  role: string;
+  level: string;
+  city: string;
+  totalComp: number;    // base + bonus + equity
+  baseSalary: number;
+  bonus: number;
+  equity: number;
+  state: string;        // two-letter code from city
+  percentile: number | null;
+  usingLiveData: boolean;
 }
 
 takeHomeCtx: {
-  grossSalary: number;    // pre-tax annual salary
-  netTakeHome: number;    // after all deductions
-  state: string;          // two-letter state code
-  retirementRate: number; // 401k contribution as integer percent
-}
-```
-
-### Tax engine input (`TaxInputs`)
-
-```typescript
-{
-  gross: number;            // annual gross salary
+  grossSalary: number;       // base salary only (from Benchmark)
+  netTakeHome: number;       // after tax, before post-tax Roth IRA
+  spendableTakeHome: number; // net minus post-tax Roth IRA — Budget income base
+  state: string;
+  retirementRate: number;
   filingStatus: 'single' | 'married';
-  state: string;            // two-letter state code
-  traditional401k: number;  // pre-tax contribution, dollars
-  roth401k: number;         // after-tax contribution, dollars
+  k401Type: 'traditional' | 'roth';
+  k401Amount: number;
+  employerMatch: number;
+  rothIRA: number;
+  hsaAmount: number;
+  age50Plus: boolean;
+  age55Plus: boolean;
+  hsaCoverage: 'self' | 'family';
+  // tax line items…
 }
 ```
 
-### Tax engine output (`TaxBreakdown`)
+### URL parameters
 
-```typescript
-{
-  gross: number;
-  traditional401k: number;
-  roth401k: number;
-  federalTaxableIncome: number;
-  stateTaxableIncome: number;
-  federalTax: number;
-  stateTax: number;
-  socialSecurity: number;
-  medicare: number;
-  sdi: number;              // CA SDI; 0 for all other states
-  netTakeHome: number;
-}
-```
+| Param | Module | Content |
+|---|---|---|
+| `tab`, `role`, `level`, `city`, `salary`, `bonus`, `equity`, `state`, `k401`, `filing` | Benchmark / Take-Home | Core comp & tax inputs |
+| `offers` | Offer | Base64 JSON offer comparison snapshot |
+| `budget` | Budget / Take-Home | Base64 JSON: `cashFlowExpenses`, `balanceSheet`, `takeHomeSettings` |
 
-### Market data (`MarketData`)
+Partial share links (without `budget`) show a banner; re-copy the link after editing budget or contribution settings to share the full scenario.
 
-```typescript
-{
-  p25: number;  // 25th percentile total comp for role/level/city
-  p50: number;
-  p75: number;
-  p90: number;
-}
-```
+## Supabase — `salary_benchmarks`
+
+Canonical DDL: `supabase/migrations/001_salary_benchmarks.sql`
+
+| column | type | notes |
+|---|---|---|
+| id | uuid | primary key |
+| case_number | text | unique — DOL LCA case number; upsert key for loader |
+| company | text | employer name |
+| role | text | SOC title |
+| role_normalized | text | lowercase for `ilike` queries |
+| base_salary | integer | annual USD |
+| location_state | text | two-letter state |
+| location_city | text | optional |
+| scraped_at | timestamptz | LCA begin date |
+| source | text | `'h1b'` |
+| bonus, equity_annual, level, years_exp | nullable | reserved |
+| total_comp | integer | defaults to base_salary for H1B rows |
+
+**RLS:** public `SELECT`; writes via service role in `scripts/loadH1B.py`.
+
+**Benchmark query:** filters by `role_normalized` + `location_state`, compares user **base salary** to H1B `base_salary` for live percentile. Static fallback uses **total comp** vs hardcoded market bands.
 
 ## Static data files
 
 ### `src/data/taxBrackets.ts`
-- Federal bracket arrays (single and married filing jointly, 2024)
-- Standard deduction constants ($14,600 single / $29,200 MFJ)
-- 401k limits ($23,000 traditional, $30,500 catch-up)
-- FICA constants (SS wage base $168,600, SS rate 6.2%, Medicare rate 1.45%)
-- CA SDI rate (1.1%)
+- Federal bracket arrays (2024 tax year)
+- Standard deduction ($14,600 single / $29,200 MFJ)
+
+### `src/lib/contributionLimits.ts`
+- IRS 2026 elective deferral, HSA, Roth IRA limits and catch-up rules
 
 ### `src/data/stateTaxRates.ts`
-- `ZERO_TAX_STATES`: Set of 9 state codes
-- `FLAT_RATE_STATES`: Record<state, rate> for 15 states
-- `BRACKET_STATES`: Record<state, Bracket[]> for 27 states + DC
+- State income tax rates and brackets
 
 ### `src/data/budgetRules.ts`
-- Three framework definitions (50/30/20, 60/20/20, 60/30/10)
+- Budget framework definitions (50/30/20, etc.)
 
-## Future Supabase tables (not yet implemented)
+## Tax engine
 
-### `market_data`
-| column | type | notes |
-|---|---|---|
-| id | uuid | primary key |
-| role | text | |
-| level | text | |
-| city | text | |
-| p25 | integer | annual dollars |
-| p50 | integer | |
-| p75 | integer | |
-| p90 | integer | |
-| source | text | 'levels_fyi' / 'h1b' / 'glassdoor' |
-| year | integer | tax year |
-| updated_at | timestamptz | |
-
-### `h1b_wages`
-| column | type | notes |
-|---|---|---|
-| id | uuid | primary key |
-| employer | text | |
-| job_title | text | |
-| state | text | two-letter code |
-| wage_rate | integer | annual |
-| year | integer | fiscal year |
+Input/output types documented in `docs/system-design.md`. Tax **brackets** use 2024; **contribution limits** use IRS 2026 figures.
