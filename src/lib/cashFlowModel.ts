@@ -235,6 +235,7 @@ function edge(
 export function buildCashFlowGraph(state: CashFlowState): {
   nodes: Node<CashFlowNodeData>[];
   edges: Edge[];
+  height: number;
 } {
   const { takeHome, expenses } = state;
   const monthlyTakeHome = getMonthlyTakeHome(state);
@@ -246,8 +247,107 @@ export function buildCashFlowGraph(state: CashFlowState): {
   const nodes: Node<CashFlowNodeData>[] = [];
   const edges: Edge[] = [];
 
+  const ITEM_ROW_H = 58;
+  const SECTION_GAP = 28;
+  const CAT_X = 680;
+  const ITEM_X = 920;
+
+  const categories: Array<{
+    id: string;
+    label: string;
+    category: "necessary" | "lifestyle" | "savingsRisk";
+    items: Record<string, number>;
+    labels: Record<string, string>;
+  }> = [
+    {
+      id: "necessary",
+      label: "Necessary & Essential",
+      category: "necessary",
+      items: expenses.necessary,
+      labels: NECESSARY_LABELS,
+    },
+    {
+      id: "lifestyle",
+      label: "Lifestyle & Discretionary",
+      category: "lifestyle",
+      items: expenses.lifestyle,
+      labels: LIFESTYLE_LABELS,
+    },
+    {
+      id: "savingsRisk",
+      label: "Savings & Risk Management",
+      category: "savingsRisk",
+      items: expenses.savingsRisk,
+      labels: SAVINGS_RISK_LABELS,
+    },
+  ];
+
+  // Lay out category blocks first so we can center the take-home hub vertically.
+  let categoryY = 0;
+  const categoryBlocks: Array<{ id: string; y: number; height: number; total: number }> = [];
+
+  categories.forEach((cat) => {
+    const activeKeys = (Object.keys(cat.items) as string[]).filter(
+      (key) => cat.items[key as keyof typeof cat.items] > 0,
+    );
+    const blockHeight = activeKeys.length > 0 ? 44 + activeKeys.length * ITEM_ROW_H : 44;
+    const total = sumRecord(cat.items);
+
+    categoryBlocks.push({ id: cat.id, y: categoryY, height: blockHeight, total });
+
+    nodes.push(
+      node(cat.id, CAT_X, categoryY, {
+        label: cat.label,
+        monthly: total,
+        annual: total * 12,
+        pctOfTakeHome: pct(total, monthlyTakeHome),
+        kind: "category",
+        category: cat.category,
+        tone: cat.category === "savingsRisk" ? "positive" : "neutral",
+      }),
+    );
+
+    let itemY = categoryY;
+    activeKeys.forEach((key) => {
+      const monthly = cat.items[key as keyof typeof cat.items];
+      const itemId = `${cat.id}-${key}`;
+      nodes.push(
+        node(itemId, ITEM_X, itemY, {
+          label: cat.labels[key],
+          monthly,
+          annual: monthly * 12,
+          kind: "lineItem",
+          category: cat.category,
+          fieldKey: key,
+          editable: true,
+          tone: "neutral",
+        }),
+      );
+      edges.push(edge(`e-${cat.id}-${itemId}`, cat.id, itemId, fmtCurrency(monthly)));
+      itemY += ITEM_ROW_H;
+    });
+
+    categoryY += blockHeight + SECTION_GAP;
+  });
+
+  const surplusY = categoryY;
   nodes.push(
-    node("gross", 0, 0, {
+    node("surplus", CAT_X, surplusY, {
+      label: surplus >= 0 ? "Surplus" : "Shortage",
+      monthly: Math.abs(surplus),
+      annual: Math.abs(surplus) * 12,
+      pctOfTakeHome: pct(Math.abs(surplus), monthlyTakeHome),
+      kind: "result",
+      tone: surplus >= 0 ? "positive" : "warning",
+      editable: false,
+    }),
+  );
+
+  const contentHeight = surplusY + 72;
+  const takehomeY = Math.max(24, contentHeight / 2 - 28);
+
+  nodes.push(
+    node("gross", 0, takehomeY, {
       label: "Gross Income",
       monthly: monthlyGross,
       annual: takeHome.grossSalary,
@@ -256,16 +356,26 @@ export function buildCashFlowGraph(state: CashFlowState): {
     }),
   );
 
+  nodes.push(
+    node("takehome", 440, takehomeY, {
+      label: "Monthly Take-Home",
+      monthly: monthlyTakeHome,
+      annual: monthlyTakeHome * 12,
+      kind: "hub",
+      tone: "positive",
+    }),
+  );
+
   const deductions: Array<{ id: string; label: string; monthly: number }> = [
     { id: "k401", label: "401(k) Pre-Tax", monthly: preTax.k401 },
     { id: "hsa", label: "HSA Pre-Tax", monthly: preTax.hsa },
     { id: "taxes", label: "Taxes & FICA", monthly: monthlyTaxes },
-  ];
+  ].filter((d) => d.monthly > 0);
 
   deductions.forEach((d, i) => {
-    if (d.monthly <= 0) return;
+    const dedY = takehomeY + (i - (deductions.length - 1) / 2) * 72;
     nodes.push(
-      node(d.id, 220, i * 72, {
+      node(d.id, 220, dedY, {
         label: d.label,
         monthly: d.monthly,
         annual: d.monthly * 12,
@@ -287,111 +397,22 @@ export function buildCashFlowGraph(state: CashFlowState): {
     edges.push(edge(`e-${d.id}-takehome`, d.id, "takehome"));
   });
 
-  nodes.push(
-    node("takehome", 480, 80, {
-      label: "Monthly Take-Home",
-      monthly: monthlyTakeHome,
-      annual: monthlyTakeHome * 12,
-      kind: "hub",
-      tone: "positive",
-    }),
-  );
-
-  if (deductions.every((d) => d.monthly <= 0)) {
+  if (deductions.length === 0) {
     edges.push(edge("e-gross-takehome", "gross", "takehome", fmtCurrency(monthlyTakeHome), 3));
   }
 
-  const categories: Array<{
-    id: string;
-    label: string;
-    category: "necessary" | "lifestyle" | "savingsRisk";
-    items: Record<string, number>;
-    labels: Record<string, string>;
-    y: number;
-  }> = [
-    {
-      id: "necessary",
-      label: "Necessary & Essential",
-      category: "necessary",
-      items: expenses.necessary,
-      labels: NECESSARY_LABELS,
-      y: 0,
-    },
-    {
-      id: "lifestyle",
-      label: "Lifestyle & Discretionary",
-      category: "lifestyle",
-      items: expenses.lifestyle,
-      labels: LIFESTYLE_LABELS,
-      y: 200,
-    },
-    {
-      id: "savingsRisk",
-      label: "Savings & Risk Management",
-      category: "savingsRisk",
-      items: expenses.savingsRisk,
-      labels: SAVINGS_RISK_LABELS,
-      y: 400,
-    },
-  ];
-
-  categories.forEach((cat) => {
-    const total = sumRecord(cat.items);
-    nodes.push(
-      node(cat.id, 760, cat.y, {
-        label: cat.label,
-        monthly: total,
-        annual: total * 12,
-        pctOfTakeHome: pct(total, monthlyTakeHome),
-        kind: "category",
-        category: cat.category,
-        tone: cat.category === "savingsRisk" ? "positive" : "neutral",
-      }),
-    );
+  categoryBlocks.forEach(({ id, total }) => {
     edges.push(
       edge(
-        `e-takehome-${cat.id}`,
+        `e-takehome-${id}`,
         "takehome",
-        cat.id,
+        id,
         fmtCurrency(total),
         Math.max(1.5, monthlyTakeHome > 0 ? (total / monthlyTakeHome) * 5 : 1.5),
       ),
     );
-
-    let itemY = cat.y - 20;
-    (Object.keys(cat.items) as string[]).forEach((key) => {
-      const monthly = cat.items[key as keyof typeof cat.items];
-      if (monthly <= 0) return;
-      const itemId = `${cat.id}-${key}`;
-      nodes.push(
-        node(itemId, 1020, itemY, {
-          label: cat.labels[key],
-          monthly,
-          annual: monthly * 12,
-          pctOfTakeHome: pct(monthly, monthlyTakeHome),
-          kind: "lineItem",
-          category: cat.category,
-          fieldKey: key,
-          editable: true,
-          tone: "neutral",
-        }),
-      );
-      edges.push(edge(`e-${cat.id}-${itemId}`, cat.id, itemId, fmtCurrency(monthly)));
-      itemY += 56;
-    });
   });
 
-  nodes.push(
-    node("surplus", 760, 560, {
-      label: surplus >= 0 ? "Surplus" : "Shortage",
-      monthly: Math.abs(surplus),
-      annual: Math.abs(surplus) * 12,
-      pctOfTakeHome: pct(Math.abs(surplus), monthlyTakeHome),
-      kind: "result",
-      tone: surplus >= 0 ? "positive" : "warning",
-      editable: false,
-    }),
-  );
   edges.push(
     edge(
       "e-takehome-surplus",
@@ -402,7 +423,7 @@ export function buildCashFlowGraph(state: CashFlowState): {
     ),
   );
 
-  return { nodes, edges };
+  return { nodes, edges, height: Math.max(420, contentHeight + 48) };
 }
 
 export function updateExpenseField(

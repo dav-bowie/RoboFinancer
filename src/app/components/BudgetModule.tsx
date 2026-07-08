@@ -15,7 +15,7 @@ import {
 } from "../../lib/cashFlowModel";
 import type { BalanceSheetState } from "../../lib/balanceSheetModel";
 import { RangeSlider } from "./ui/range-slider";
-import { CashFlowDiagram } from "./CashFlowDiagram";
+import { CashFlowDiagram, FlowSummaryBar } from "./CashFlowDiagram";
 import { BalanceSheetPanel } from "./BalanceSheetPanel";
 import { BudgetLineItemEditor } from "./BudgetLineItemEditor";
 import { AllocationBucketsVisual } from "./AllocationBucketsVisual";
@@ -114,17 +114,19 @@ function ExpenseSectionEditor({
   const items = expenses[category];
   const labels = EXPENSE_FIELD_LABELS[category];
   return (
-    <div className="space-y-2">
-      <div className="text-xs tracking-widest uppercase text-muted-foreground">{title}</div>
-      {(Object.keys(labels) as Array<keyof typeof labels>).map((key) => (
-        <BudgetLineItemEditor
-          key={String(key)}
-          label={labels[key]}
-          value={items[key as keyof typeof items]}
-          onChange={(value) => onUpdate(updateExpenseField(expenses, category, String(key), value))}
-        />
-      ))}
-    </div>
+    <section className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
+      <h3 className="text-xs tracking-widest uppercase text-muted-foreground">{title}</h3>
+      <div className="space-y-2">
+        {(Object.keys(labels) as Array<keyof typeof labels>).map((key) => (
+          <BudgetLineItemEditor
+            key={String(key)}
+            label={labels[key]}
+            value={items[key as keyof typeof items]}
+            onChange={(value) => onUpdate(updateExpenseField(expenses, category, String(key), value))}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -228,7 +230,11 @@ export function BudgetModule({
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-1 overflow-x-auto scrollbar-none border-b border-border -mb-1" role="tablist" aria-label="Budget views">
+      <div
+        className="flex gap-1 overflow-x-auto scrollbar-none border-b border-border pb-px"
+        role="tablist"
+        aria-label="Budget views"
+      >
         {SUB_VIEWS.map(({ id, label }) => (
           <button
             key={id}
@@ -236,7 +242,7 @@ export function BudgetModule({
             role="tab"
             aria-selected={subView === id}
             onClick={() => setSubView(id)}
-            className={`shrink-0 px-4 py-2.5 text-xs border-b-2 transition-colors whitespace-nowrap ${
+            className={`shrink-0 px-4 py-2.5 text-xs border-b-2 transition-colors whitespace-nowrap -mb-px ${
               subView === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -246,23 +252,35 @@ export function BudgetModule({
       </div>
 
       {subView === "flow" && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className="space-y-5">
-            <ExpenseSectionEditor title="Necessary & Essential" category="necessary" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
-            <ExpenseSectionEditor title="Lifestyle & Discretionary" category="lifestyle" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
-            <ExpenseSectionEditor title="Savings & Risk Management" category="savingsRisk" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
-            {selectedNode && (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
-                <div className="text-xs text-primary mb-2">Editing: {selectedNode.label}</div>
-                <BudgetLineItemEditor
-                  label={selectedNode.label}
-                  value={selectedNode.value}
-                  onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
-                />
-              </div>
-            )}
+        <div className="space-y-5 pt-1">
+          <FlowSummaryBar state={cashFlowState} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-8 items-start">
+            <div className="space-y-6 min-w-0 xl:max-h-[calc(100vh-16rem)] xl:overflow-y-auto xl:pr-2">
+              <ExpenseSectionEditor title="Necessary & Essential" category="necessary" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
+              <ExpenseSectionEditor title="Lifestyle & Discretionary" category="lifestyle" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
+              <ExpenseSectionEditor title="Savings & Risk Management" category="savingsRisk" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
+              {selectedNode && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                  <div className="text-xs text-primary mb-2">Editing: {selectedNode.label}</div>
+                  <BudgetLineItemEditor
+                    label={selectedNode.label}
+                    value={selectedNode.value}
+                    onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="min-w-0 xl:sticky xl:top-24">
+              <CashFlowDiagram
+                state={cashFlowState}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                showSummary={false}
+              />
+            </div>
           </div>
-          <CashFlowDiagram state={cashFlowState} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />
         </div>
       )}
 
@@ -338,14 +356,64 @@ function FrameworkOutput({ chartData, pieChartData, monthlyIncome, surplus, fram
         <div className="rounded border border-border bg-card p-3"><div className="text-xs text-muted-foreground mb-1">Savings Rate</div><div className="font-mono text-base text-emerald-400">{((actualSpending.savings / (monthlyIncome || 1)) * 100).toFixed(1)}%</div></div>
       </div>
       <div className="rounded border border-border bg-card p-4">
-        <div className="text-xs tracking-widest uppercase text-muted-foreground mb-3">Monthly Breakdown</div>
+        <div className="mb-3">
+          <div className="text-xs tracking-widest uppercase text-muted-foreground">Monthly Breakdown</div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Where your take-home goes each month — one slice per expense line item from the Flow Diagram.
+          </p>
+        </div>
         <ResponsiveContainer width="100%" height={220}>
           <PieChart>
-            <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={65} outerRadius={95} paddingAngle={2} dataKey="value" nameKey="name" strokeWidth={0}>
-              {pieChartData.map((entry: any, index: number) => <Cell key={index} fill={entry.color} />)}
+            <Pie
+              data={pieChartData}
+              cx="50%"
+              cy="50%"
+              innerRadius={65}
+              outerRadius={95}
+              paddingAngle={2}
+              dataKey="value"
+              nameKey="name"
+              strokeWidth={0}
+            >
+              {pieChartData.map((entry: any, index: number) => (
+                <Cell key={index} fill={entry.color} />
+              ))}
             </Pie>
+            <Tooltip
+              formatter={(value: number, _name: string, props: { payload?: { name: string; pct?: number } }) => [
+                `${fmtCurrency(value)}${props.payload?.pct != null ? ` · ${props.payload.pct}%` : ""}`,
+                props.payload?.name ?? "Expense",
+              ]}
+              contentStyle={{ background: "#101013", border: "1px solid #27272e", borderRadius: 8, fontSize: 12 }}
+            />
           </PieChart>
         </ResponsiveContainer>
+
+        {pieChartData.length > 0 ? (
+          <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3">
+            {pieChartData.map((entry: { name: string; value: number; color: string; pct?: number }) => (
+              <li key={entry.name} className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                    style={{ background: entry.color }}
+                    aria-hidden
+                  />
+                  <span className="text-foreground truncate">{entry.name}</span>
+                </span>
+                <span className="font-mono text-muted-foreground shrink-0">
+                  {fmtCurrency(entry.value)}
+                  {entry.pct != null ? <span className="text-[10px] ml-1">({entry.pct}%)</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-xs text-muted-foreground border-t border-border pt-3">
+            Add expenses on the Flow Diagram tab to see your breakdown here.
+          </p>
+        )}
+
         <table className="sr-only">
           <caption>Monthly spending breakdown</caption>
           <thead>

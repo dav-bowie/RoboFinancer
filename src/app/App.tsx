@@ -289,7 +289,7 @@ export default function App() {
       >
         Skip to main content
       </a>
-      <Toaster richColors position="top-center" />
+      <Toaster richColors position="bottom-right" />
       {/* Disclaimer banner */}
       {!disclaimerDismissed && (
         <div className="bg-muted/60 border-b border-border px-4 py-2.5 flex items-start sm:items-center gap-3">
@@ -441,6 +441,7 @@ export default function App() {
               comparison={offerComparison}
               onComparisonChange={setOfferComparison}
               onGoToTakeHome={() => setTab("takehome")}
+              isActive={tab === "offer"}
             />
           </div>
         </Suspense>

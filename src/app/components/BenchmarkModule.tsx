@@ -5,10 +5,51 @@ import {
   LEVELS_BY_ROLE,
   CITIES,
   getMarketData,
-  getPercentile,
   fmtCurrency,
 } from "../../lib/calculations";
+import {
+  buildRoleOrFilter,
+  citySearchTerm,
+  resolveBenchmark,
+  roleKeywords,
+  stateFromCity,
+} from "../../lib/benchmarkModel";
 import { supabase } from "../../lib/supabaseClient";
+
+async function fetchLiveBaseSalaries(role: string, city: string): Promise<number[]> {
+  if (!supabase) return [];
+
+  const state = stateFromCity(city);
+  const cityTerm = citySearchTerm(city);
+  const keywords = roleKeywords(role);
+  const pageSize = 1000;
+  const salaries: number[] = [];
+  let from = 0;
+
+  while (from < 10000) {
+    let query = supabase
+      .from("salary_benchmarks")
+      .select("base_salary")
+      .eq("location_state", state)
+      .or(buildRoleOrFilter(keywords))
+      .order("base_salary", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (cityTerm) {
+      query = query.ilike("location_city", `%${cityTerm}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data?.length) break;
+
+    salaries.push(...data.map((r: { base_salary: number }) => Number(r.base_salary)).filter(Boolean));
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return salaries;
+}
 
 function ordinalSuffix(n: number): string {
   const mod100 = n % 100;
@@ -53,15 +94,13 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
   const totalComp = baseSalary + bonus + equity;
   const fallbackMarketData = useMemo(() => getMarketData(role, level, city), [role, level, city]);
 
-  const [marketData, setMarketData] = useState<any | null>(null);
+  const [marketData, setMarketData] = useState<{ p25: number; p50: number; p75: number; p90: number } | null>(null);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [percentile, setPercentile] = useState<number | null>(null);
   const [usingLiveData, setUsingLiveData] = useState(false);
   const [marketError, setMarketError] = useState<string | null>(null);
-
-  // derive a normalized role and state from selections
-  const roleNormalized = role.toLowerCase().trim();
-  const locationState = city.split(",").pop()?.trim() || "";
+  const [sampleSize, setSampleSize] = useState(0);
+  const [methodology, setMethodology] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -69,59 +108,68 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
       setLoadingMarket(true);
       setMarketError(null);
       try {
-        if (!supabase) {
+        const staticBands = fallbackMarketData;
+        if (!staticBands) {
           if (mounted) {
-            setMarketData(fallbackMarketData || null);
-            setUsingLiveData(false);
+            setMarketData(null);
             setPercentile(null);
+            setUsingLiveData(false);
+            setSampleSize(0);
+            setMethodology(null);
           }
           return;
         }
 
-        const { data, error } = await supabase
-          .from("salary_benchmarks")
-          .select("base_salary")
-          .ilike("role_normalized", `%${roleNormalized}%`)
-          .eq("location_state", locationState)
-          .limit(1000);
-
-        if (error) {
-          console.error("Supabase query error:", error);
+        if (!supabase) {
+          const result = resolveBenchmark(
+            { role, level, city, totalComp, staticBands },
+            null,
+          );
           if (mounted) {
-            setMarketData(fallbackMarketData || null);
+            setMarketData(result.bands);
+            setPercentile(result.percentile);
             setUsingLiveData(false);
-            setPercentile(null);
-            setMarketError("Live benchmark data unavailable — using estimates.");
-            toast.error("Could not load live benchmark data. Using estimates.");
+            setSampleSize(0);
+            setMethodology(result.methodology);
           }
-        } else if (data && data.length > 0) {
-          const salaries = data.map((r: any) => Number(r.base_salary)).filter(Boolean).sort((a: number, b: number) => a - b);
-          const p25 = salaries[Math.floor(0.25 * (salaries.length - 1))] || fallbackMarketData?.p25 || 0;
-          const p50 = salaries[Math.floor(0.5 * (salaries.length - 1))] || fallbackMarketData?.p50 || 0;
-          const p75 = salaries[Math.floor(0.75 * (salaries.length - 1))] || fallbackMarketData?.p75 || 0;
-          const p90 = salaries[Math.floor(0.9 * (salaries.length - 1))] || fallbackMarketData?.p90 || 0;
+          return;
+        }
 
-          if (mounted) {
-            setMarketData({ p25, p50, p75, p90 });
-            setUsingLiveData(true);
-            const idx = salaries.findIndex((s: number) => s >= baseSalary);
-            const rank = idx === -1 ? 100 : Math.round((idx / Math.max(1, salaries.length - 1)) * 100);
-            setPercentile(rank);
-          }
-        } else {
-          if (mounted) {
-            setMarketData(fallbackMarketData || null);
-            setUsingLiveData(false);
-            setPercentile(null);
+        const liveSalaries = await fetchLiveBaseSalaries(role, city);
+        const result = resolveBenchmark(
+          { role, level, city, totalComp, staticBands },
+          liveSalaries,
+        );
+
+        if (mounted) {
+          setMarketData(result.bands);
+          setPercentile(result.percentile);
+          setUsingLiveData(result.usingLiveData);
+          setSampleSize(result.sampleSize);
+          setMethodology(result.methodology);
+          if (liveSalaries.length > 0 && !result.usingLiveData) {
+            setMarketError(
+              `Only ${liveSalaries.length} H1B matches for this role/location — using level-adjusted estimates.`,
+            );
           }
         }
       } catch (err) {
         console.error(err);
         if (mounted) {
-          setMarketData(fallbackMarketData || null);
-          setUsingLiveData(false);
-          setPercentile(null);
+          const staticBands = fallbackMarketData;
+          if (staticBands) {
+            const result = resolveBenchmark(
+              { role, level, city, totalComp, staticBands },
+              null,
+            );
+            setMarketData(result.bands);
+            setPercentile(result.percentile);
+            setUsingLiveData(false);
+            setSampleSize(0);
+            setMethodology(result.methodology);
+          }
           setMarketError("Live benchmark data unavailable — using estimates.");
+          toast.error("Could not load live benchmark data. Using estimates.");
         }
       } finally {
         if (mounted) setLoadingMarket(false);
@@ -132,7 +180,7 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
     return () => {
       mounted = false;
     };
-  }, [role, level, city, baseSalary, roleNormalized, locationState, fallbackMarketData]);
+  }, [role, level, city, totalComp, fallbackMarketData]);
 
   const handleRoleChange = (newRole: string) => {
     setRole(newRole);
@@ -140,14 +188,9 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
     if (!newLevels.includes(level)) setLevel(newLevels[2] || newLevels[0] || "");
   };
 
-  // Use the data we're actually displaying as the source for percentile computation,
-  // falling back to fallbackMarketData so static-only mode always produces a number.
+  const locationState = stateFromCity(city);
   const effectiveData = marketData ?? fallbackMarketData;
-  const actualPercentile = percentile !== null
-    ? percentile
-    : effectiveData
-      ? getPercentile(totalComp, effectiveData)
-      : null;
+  const actualPercentile = percentile;
 
   useEffect(() => {
     onUpdate({
@@ -363,18 +406,18 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
             </div>
 
             {/* Negotiation insight */}
-            {actualPercentile !== null && actualPercentile < 50 && (
+            {actualPercentile !== null && actualPercentile < 50 && effectiveData && (
               <div className="rounded border border-amber-500/20 bg-amber-500/5 p-4">
                 <div className="text-xs text-amber-400 mb-2 uppercase tracking-widest">Negotiation Range</div>
                 <p className="text-sm text-foreground">
                   You have room to negotiate up to{" "}
-                  <span className="font-mono text-primary">{fmtCurrency(marketData.p50)}</span>{" "}
+                  <span className="font-mono text-primary">{fmtCurrency(effectiveData.p50)}</span>{" "}
                   (market median) — a potential increase of{" "}
                   <span className="font-mono text-primary">
-                    {fmtCurrency(marketData.p50 - (usingLiveData ? baseSalary : totalComp))}
+                    {fmtCurrency(Math.max(0, effectiveData.p50 - totalComp))}
                   </span>
                   . Reference your p75 of{" "}
-                  <span className="font-mono">{fmtCurrency(marketData.p75)}</span> as your stretch target.
+                  <span className="font-mono">{fmtCurrency(effectiveData.p75)}</span> as your stretch target.
                 </p>
               </div>
             )}
@@ -399,14 +442,20 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
         {marketError && (
           <p className="text-xs text-amber-400">{marketError}</p>
         )}
-        {usingLiveData && (
-          <p className="text-xs text-muted-foreground">
-            Percentile compares your <strong className="text-foreground">base salary</strong> to H1B base wages in {locationState}. Total comp (bonus + equity) is shown separately.
+        {methodology && (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {methodology}
+            {usingLiveData && sampleSize > 0 && (
+              <>
+                {" "}
+                <span className="text-foreground/80">({sampleSize.toLocaleString()} records)</span>
+              </>
+            )}
           </p>
         )}
         {!usingLiveData && actualPercentile !== null && (
           <p className="text-xs text-muted-foreground">
-            Percentile compares your <strong className="text-foreground">total comp</strong> (base + bonus + equity) to static market estimates for {role} · {level}.
+            Percentile compares your <strong className="text-foreground">total comp</strong> to level- and city-adjusted market estimates for {role} · {level}.
           </p>
         )}
       </div>

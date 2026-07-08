@@ -28,6 +28,7 @@ interface Props {
   comparison: OfferComparisonSnapshot;
   onComparisonChange: (snapshot: OfferComparisonSnapshot) => void;
   onGoToTakeHome?: () => void;
+  isActive?: boolean;
 }
 
 const TELEPORT_SLUGS: Record<string, string> = {
@@ -74,10 +75,11 @@ async function fetchTeleportColScore(city: string): Promise<number | null> {
   }
 }
 
-function useTeleportScore(city: string): TeleportScore {
+function useTeleportScore(city: string, enabled: boolean): TeleportScore {
   const [score, setScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     setLoading(true);
     fetchTeleportColScore(city).then((s) => {
@@ -92,7 +94,7 @@ function useTeleportScore(city: string): TeleportScore {
     return () => {
       active = false;
     };
-  }, [city]);
+  }, [city, enabled]);
   return { score, loading };
 }
 
@@ -343,7 +345,7 @@ function OfferColumn({
   );
 }
 
-export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoToTakeHome }: Props) {
+export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoToTakeHome, isActive = true }: Props) {
   const { current, newOffer, prefs } = comparison;
   const setCurrent = (patch: Partial<OfferInputs>) =>
     onComparisonChange({ ...comparison, current: { ...current, ...patch } });
@@ -356,8 +358,8 @@ export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoT
 
   const [showPrefs, setShowPrefs] = useState(true);
 
-  const currTeleport = useTeleportScore(current.city);
-  const nextTeleport = useTeleportScore(newOffer.city);
+  const currTeleport = useTeleportScore(current.city, isActive);
+  const nextTeleport = useTeleportScore(newOffer.city, isActive);
 
   const calc = (o: OfferInputs) => {
     const totalComp = o.baseSalary + o.bonus + o.equity;
