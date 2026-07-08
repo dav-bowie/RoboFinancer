@@ -1,26 +1,6 @@
--- Canonical salary_benchmarks table for H1B wage disclosures
--- Public read; writes via service role (loader script)
+-- Upgrade existing salary_benchmarks tables created before case_number existed.
+-- Safe to run multiple times.
 
-CREATE TABLE IF NOT EXISTS public.salary_benchmarks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_number TEXT UNIQUE,
-  company TEXT,
-  role TEXT,
-  role_normalized TEXT NOT NULL,
-  base_salary INTEGER NOT NULL CHECK (base_salary >= 0),
-  location_state TEXT NOT NULL,
-  location_city TEXT,
-  scraped_at TIMESTAMPTZ,
-  source TEXT NOT NULL DEFAULT 'h1b',
-  bonus INTEGER,
-  equity_annual INTEGER,
-  level TEXT,
-  years_exp INTEGER,
-  total_comp INTEGER,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Add any columns missing on tables created before this migration existed
 ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS case_number TEXT;
 ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS company TEXT;
 ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS role TEXT;
@@ -37,6 +17,17 @@ ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS years_exp INTEGER;
 ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS total_comp INTEGER;
 ALTER TABLE public.salary_benchmarks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
 
+-- id column only if table was created without it (skip if already has a primary key)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'salary_benchmarks' AND column_name = 'id'
+  ) THEN
+    ALTER TABLE public.salary_benchmarks ADD COLUMN id UUID DEFAULT gen_random_uuid();
+  END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_benchmarks_case_number_unique
   ON public.salary_benchmarks (case_number)
   WHERE case_number IS NOT NULL;
@@ -46,6 +37,12 @@ CREATE INDEX IF NOT EXISTS idx_salary_benchmarks_role_state
 
 CREATE INDEX IF NOT EXISTS idx_salary_benchmarks_state_salary
   ON public.salary_benchmarks (location_state, base_salary);
+
+CREATE INDEX IF NOT EXISTS idx_salary_benchmarks_state_city
+  ON public.salary_benchmarks (location_state, location_city);
+
+CREATE INDEX IF NOT EXISTS idx_salary_benchmarks_role_state_salary
+  ON public.salary_benchmarks (role_normalized, location_state, base_salary);
 
 ALTER TABLE public.salary_benchmarks ENABLE ROW LEVEL SECURITY;
 

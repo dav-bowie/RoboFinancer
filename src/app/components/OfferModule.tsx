@@ -14,6 +14,7 @@ import {
   type CompFocus,
 } from "../../lib/offerScoring";
 import { RangeSlider } from "./ui/range-slider";
+import { CurrencyInput } from "./ui/currency-input";
 
 interface OfferInputs extends OfferInputsSnapshot {}
 
@@ -292,10 +293,11 @@ function OfferColumn({
           <label className="block mb-1 text-xs text-muted-foreground">{lbl}</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
-            <input
-              type="number"
+            <CurrencyInput
               value={offer[key] as number}
-              onChange={(e) => onChange({ [key]: Number(e.target.value) })}
+              onChange={(v) => onChange({ [key]: v })}
+              min={0}
+              max={5_000_000}
               className="w-full bg-secondary border border-border rounded px-3 py-2 pl-6 text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>

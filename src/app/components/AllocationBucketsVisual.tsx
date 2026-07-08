@@ -14,6 +14,7 @@ interface Props {
 
 function FunnelBucket({ bucket, maxMonthly }: { bucket: AllocationBucket; maxMonthly: number }) {
   const fillPct = Math.round(bucket.progress * 100);
+  const overTarget = bucket.targetBalance > 0 && bucket.currentBalance > bucket.targetBalance;
   const monthlyWidth =
     maxMonthly > 0 ? Math.max(8, (bucket.recommendedMonthly / maxMonthly) * 100) : 0;
   const actualWidth =
@@ -21,7 +22,7 @@ function FunnelBucket({ bucket, maxMonthly }: { bucket: AllocationBucket; maxMon
 
   return (
     <div
-      className={`rounded-lg border p-4 transition-all ${
+      className={`flex flex-col h-full rounded-lg border p-4 transition-all ${
         bucket.recommended
           ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20"
           : "border-border bg-card"
@@ -43,32 +44,32 @@ function FunnelBucket({ bucket, maxMonthly }: { bucket: AllocationBucket; maxMon
         </div>
       </div>
 
-      {/* Funnel visual */}
-      <div className="relative mb-3">
-        <div className="flex flex-col items-center">
+      {/* Bucket progress */}
+      <div className="relative mb-3 mx-auto w-full max-w-[160px]">
+        <div
+          className="mx-auto h-2 rounded-t-full border border-b-0 border-border/80 bg-secondary/50"
+          style={{
+            width: `${Math.min(92, monthlyWidth + 24)}%`,
+            borderColor: bucket.recommended ? `${bucket.color}66` : undefined,
+            background: bucket.recommended ? `${bucket.color}18` : undefined,
+          }}
+        />
+        <div
+          className="relative h-[4.5rem] rounded-b-lg border-2 overflow-hidden bg-secondary/20"
+          style={{ borderColor: `${bucket.color}55` }}
+        >
           <div
-            className="h-3 rounded-t-full border border-b-0 border-border bg-secondary/60 transition-all duration-500"
+            className="absolute bottom-0 inset-x-0 transition-all duration-700"
             style={{
-              width: `${Math.min(100, monthlyWidth + 20)}%`,
-              borderColor: bucket.recommended ? bucket.color : undefined,
-              background: bucket.recommended ? `${bucket.color}22` : undefined,
+              height: `${fillPct}%`,
+              background: `linear-gradient(to top, ${bucket.color}cc, ${bucket.color}44)`,
             }}
           />
-          <div
-            className="h-16 rounded-b-lg border border-border overflow-hidden relative w-full max-w-[200px] mx-auto"
-            style={{ borderColor: `${bucket.color}44` }}
-          >
-            <div
-              className="absolute bottom-0 left-0 right-0 transition-all duration-700 rounded-b-lg"
-              style={{
-                height: `${fillPct}%`,
-                background: `linear-gradient(to top, ${bucket.color}88, ${bucket.color}33)`,
-              }}
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-sm text-foreground">{fillPct}%</span>
-              <span className="text-[10px] text-muted-foreground">of target</span>
-            </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="font-mono text-sm text-foreground drop-shadow-sm">{fillPct}%</span>
+            <span className="text-[10px] text-muted-foreground">
+              {overTarget ? "above target" : "of target"}
+            </span>
           </div>
         </div>
       </div>
@@ -95,11 +96,17 @@ function FunnelBucket({ bucket, maxMonthly }: { bucket: AllocationBucket; maxMon
       </div>
 
       {bucket.actualMonthly > 0 && (
-        <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full rounded-full opacity-60"
-            style={{ width: `${actualWidth}%`, background: bucket.color }}
-          />
+        <div className="mt-auto pt-2">
+          <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+            <span>Your monthly share</span>
+            <span className="font-mono">{fmtCurrency(bucket.actualMonthly)}/mo</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${actualWidth}%`, background: bucket.color }}
+            />
+          </div>
         </div>
       )}
     </div>

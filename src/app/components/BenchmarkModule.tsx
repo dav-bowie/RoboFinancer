@@ -15,6 +15,7 @@ import {
   stateFromCity,
 } from "../../lib/benchmarkModel";
 import { supabase } from "../../lib/supabaseClient";
+import { CurrencyInput } from "./ui/currency-input";
 
 async function fetchLiveBaseSalaries(role: string, city: string): Promise<number[]> {
   if (!supabase) return [];
@@ -86,9 +87,9 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
   const [role, setRole] = useState(initialRole ?? "Software Engineer");
   const [level, setLevel] = useState(initialLevel ?? "L5 / Senior");
   const [city, setCity] = useState(initialCity ?? "San Francisco, CA");
-  const [baseSalary, setBaseSalary] = useState(initialBaseSalary ?? 210000);
-  const [bonus, setBonus] = useState(initialBonus ?? 25000);
-  const [equity, setEquity] = useState(initialEquity ?? 80000);
+  const [baseSalary, setBaseSalary] = useState(Number(initialBaseSalary ?? 210000));
+  const [bonus, setBonus] = useState(Number(initialBonus ?? 25000));
+  const [equity, setEquity] = useState(Number(initialEquity ?? 80000));
 
   const levels = LEVELS_BY_ROLE[role] || [];
   const totalComp = baseSalary + bonus + equity;
@@ -293,10 +294,11 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-              <input
-                type="number"
+              <CurrencyInput
                 value={baseSalary}
-                onChange={(e) => setBaseSalary(Number(e.target.value))}
+                onChange={setBaseSalary}
+                min={0}
+                max={5_000_000}
                 className="w-full bg-secondary border border-border rounded px-3 py-2.5 pl-6 text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -307,10 +309,11 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-              <input
-                type="number"
+              <CurrencyInput
                 value={bonus}
-                onChange={(e) => setBonus(Number(e.target.value))}
+                onChange={setBonus}
+                min={0}
+                max={5_000_000}
                 className="w-full bg-secondary border border-border rounded px-3 py-2.5 pl-6 text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -321,10 +324,11 @@ export function BenchmarkModule({ onUpdate, initialRole, initialLevel, initialCi
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-              <input
-                type="number"
+              <CurrencyInput
                 value={equity}
-                onChange={(e) => setEquity(Number(e.target.value))}
+                onChange={setEquity}
+                min={0}
+                max={5_000_000}
                 className="w-full bg-secondary border border-border rounded px-3 py-2.5 pl-6 text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
