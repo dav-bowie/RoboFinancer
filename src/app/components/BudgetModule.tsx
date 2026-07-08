@@ -255,31 +255,31 @@ export function BudgetModule({
         <div className="space-y-5 pt-1">
           <FlowSummaryBar state={cashFlowState} />
 
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-8 items-start">
-            <div className="space-y-6 min-w-0 xl:max-h-[calc(100vh-16rem)] xl:overflow-y-auto xl:pr-2">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <ExpenseSectionEditor title="Necessary & Essential" category="necessary" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Lifestyle & Discretionary" category="lifestyle" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Savings & Risk Management" category="savingsRisk" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
-              {selectedNode && (
-                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
-                  <div className="text-xs text-primary mb-2">Editing: {selectedNode.label}</div>
-                  <BudgetLineItemEditor
-                    label={selectedNode.label}
-                    value={selectedNode.value}
-                    onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
-                  />
-                </div>
-              )}
             </div>
 
-            <div className="min-w-0 xl:sticky xl:top-24">
-              <CashFlowDiagram
-                state={cashFlowState}
-                selectedNodeId={selectedNodeId}
-                onSelectNode={setSelectedNodeId}
-                showSummary={false}
-              />
-            </div>
+            {selectedNode && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 max-w-md">
+                <div className="text-xs text-primary mb-2">Editing: {selectedNode.label}</div>
+                <BudgetLineItemEditor
+                  label={selectedNode.label}
+                  value={selectedNode.value}
+                  onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
+                />
+              </div>
+            )}
+
+            <CashFlowDiagram
+              state={cashFlowState}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
+              showSummary={false}
+              layout="bottom"
+            />
           </div>
         </div>
       )}

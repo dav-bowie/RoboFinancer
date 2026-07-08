@@ -23,6 +23,8 @@ interface Props {
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
   showSummary?: boolean;
+  /** Taller canvas when diagram spans full width below editors */
+  layout?: "side" | "bottom";
 }
 
 const TONE_STYLES: Record<NonNullable<CashFlowNodeData["tone"]>, string> = {
@@ -124,7 +126,13 @@ export function FlowSummaryBar({ state }: { state: CashFlowState }) {
   );
 }
 
-export function CashFlowDiagram({ state, selectedNodeId, onSelectNode, showSummary = true }: Props) {
+export function CashFlowDiagram({
+  state,
+  selectedNodeId,
+  onSelectNode,
+  showSummary = true,
+  layout = "side",
+}: Props) {
   const graph = useMemo(() => buildCashFlowGraph(state), [state]);
   const { nodes, edges, height } = graph;
 
@@ -149,7 +157,10 @@ export function CashFlowDiagram({ state, selectedNodeId, onSelectNode, showSumma
     [nodes, selectedNodeId, onSelectNode],
   );
 
-  const canvasHeight = Math.min(Math.max(height, 380), 720);
+  const canvasHeight =
+    layout === "bottom"
+      ? Math.min(Math.max(height, 480), 820)
+      : Math.min(Math.max(height, 380), 720);
 
   return (
     <div className="space-y-3 min-w-0">
@@ -184,8 +195,8 @@ export function CashFlowDiagram({ state, selectedNodeId, onSelectNode, showSumma
       </div>
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Click or press Enter on a line-item node to edit it in the panel on the left. Use zoom controls if the diagram
-        feels tight.
+        Click or press Enter on a line-item node to edit it in the expense sections above. Use zoom controls if the
+        diagram feels tight.
       </p>
 
       <table className="sr-only">
