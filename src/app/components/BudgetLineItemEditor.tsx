@@ -1,30 +1,62 @@
 import { fmtCurrency } from "../../lib/calculations";
+import { CurrencyInput } from "./ui/currency-input";
 
 interface Props {
   label: string;
   value: number;
   onChange: (value: number) => void;
   hint?: string;
+  /** Compact row layout for tight spaces */
+  variant?: "card" | "row";
 }
 
-export function BudgetLineItemEditor({ label, value, onChange, hint }: Props) {
+const inputClassName =
+  "w-full min-w-0 bg-background border border-border rounded-md px-3 py-2.5 pl-7 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/25 selection:bg-primary/20 selection:text-foreground";
+
+export function BudgetLineItemEditor({ label, value, onChange, hint, variant = "card" }: Props) {
+  if (variant === "row") {
+    return (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <label className="text-sm text-foreground sm:w-44 shrink-0 leading-snug">{label}</label>
+        <div className="relative flex-1 min-w-[8rem] max-w-xs">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm pointer-events-none">$</span>
+          <CurrencyInput
+            value={value}
+            onChange={onChange}
+            min={0}
+            max={999_999}
+            aria-label={`${label} monthly amount`}
+            className={inputClassName}
+            onFocus={(e) => e.target.select()}
+          />
+        </div>
+        <span className="text-xs text-muted-foreground font-mono sm:w-24 sm:text-right shrink-0">
+          {fmtCurrency(value * 12)}/yr
+        </span>
+        {hint && <span className="sr-only">{hint}</span>}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-3">
-      <label className="text-xs text-muted-foreground w-40 shrink-0 leading-tight">{label}</label>
-      <div className="relative flex-1">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
-        <input
-          type="number"
-          min={0}
-          step={10}
+    <div className="rounded-lg border border-border/70 bg-secondary/25 p-3 space-y-2 hover:border-border transition-colors">
+      <label className="block text-sm text-foreground leading-snug">{label}</label>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm pointer-events-none">$</span>
+        <CurrencyInput
           value={value}
-          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
-          className="w-full bg-secondary border border-border rounded px-3 py-2 pl-6 text-foreground text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+          onChange={onChange}
+          min={0}
+          max={999_999}
+          aria-label={`${label} monthly amount`}
+          className={inputClassName}
+          onFocus={(e) => e.target.select()}
         />
       </div>
-      <span className="text-[10px] text-muted-foreground font-mono w-16 text-right shrink-0 hidden sm:block">
-        {fmtCurrency(value * 12)}/yr
-      </span>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Monthly</span>
+        <span className="font-mono">{fmtCurrency(value * 12)}/yr</span>
+      </div>
       {hint && <span className="sr-only">{hint}</span>}
     </div>
   );

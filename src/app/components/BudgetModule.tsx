@@ -114,9 +114,9 @@ function ExpenseSectionEditor({
   const items = expenses[category];
   const labels = EXPENSE_FIELD_LABELS[category];
   return (
-    <section className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
-      <h3 className="text-xs tracking-widest uppercase text-muted-foreground">{title}</h3>
-      <div className="space-y-2">
+    <section className="rounded-xl border border-border bg-card/50 p-5 space-y-4">
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {(Object.keys(labels) as Array<keyof typeof labels>).map((key) => (
           <BudgetLineItemEditor
             key={String(key)}
@@ -256,16 +256,17 @@ export function BudgetModule({
           <FlowSummaryBar state={cashFlowState} />
 
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="space-y-5">
               <ExpenseSectionEditor title="Necessary & Essential" category="necessary" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Lifestyle & Discretionary" category="lifestyle" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Savings & Risk Management" category="savingsRisk" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
             </div>
 
             {selectedNode && (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 max-w-md">
-                <div className="text-xs text-primary mb-2">Editing: {selectedNode.label}</div>
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-5">
+                <div className="text-sm text-primary font-medium mb-3">Editing: {selectedNode.label}</div>
                 <BudgetLineItemEditor
+                  variant="row"
                   label={selectedNode.label}
                   value={selectedNode.value}
                   onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
