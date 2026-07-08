@@ -80,6 +80,7 @@ export function BalanceSheetPanel({ sheet, onChange, takeHomeRetirement }: Props
               (field) => (
                 <BudgetLineItemEditor
                   key={String(field)}
+                  variant="row"
                   label={BALANCE_SHEET_LABELS[key][field]}
                   value={sheet[key][field as keyof BalanceSheetState[typeof key]] as number}
                   onChange={(value) => onChange(updateBalanceSheetField(sheet, key, field, value))}
