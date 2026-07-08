@@ -5,7 +5,9 @@ import { Toaster } from "./components/ui/sonner";
 import {
   DEFAULT_CASH_FLOW_EXPENSES,
   getSpendableAnnual,
+  normalizeCashFlowExpenses,
   toLegacyBudgetExpenses,
+  updateExpenseField,
   type CashFlowExpenses,
   type TakeHomeFlowInput,
 } from "../lib/cashFlowModel";
@@ -15,6 +17,11 @@ import {
   decodeBudgetSnapshot,
   encodeBudgetSnapshot,
 } from "../lib/budgetUrlState";
+import {
+  DEFAULT_TITHING_SETTINGS,
+  calcMonthlyTitheAmount,
+  type TithingSettings,
+} from "../lib/tithingModel";
 import {
   DEFAULT_OFFER_COMPARISON,
   decodeOfferComparisonFromUrl,
@@ -62,7 +69,7 @@ const MODULE_DESCRIPTIONS: Record<Tab, { title: string; subtitle: string }> = {
   },
   budget: {
     title: "Budget Planner",
-    subtitle: "Interactive cash flow, bucket allocation, emergency fund targets, and balance sheet — synced from Take-Home.",
+    subtitle: "Interactive cash flow, faith-based giving, bucket allocation, emergency fund targets, and balance sheet — synced from Take-Home.",
   },
   offer: {
     title: "Offer Comparison",
@@ -144,11 +151,14 @@ export default function App() {
     () => !urlInit.budget && typeof window !== "undefined" && window.location.search.length > 0,
   );
 
-  const [cashFlowExpenses, setCashFlowExpenses] = useState<CashFlowExpenses>(
-    budgetInit?.cashFlowExpenses ?? DEFAULT_CASH_FLOW_EXPENSES,
+  const [cashFlowExpenses, setCashFlowExpenses] = useState<CashFlowExpenses>(() =>
+    normalizeCashFlowExpenses(budgetInit?.cashFlowExpenses ?? DEFAULT_CASH_FLOW_EXPENSES),
   );
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheetState>(
     budgetInit?.balanceSheet ?? DEFAULT_BALANCE_SHEET,
+  );
+  const [tithingSettings, setTithingSettings] = useState<TithingSettings>(
+    budgetInit?.tithingSettings ?? DEFAULT_TITHING_SETTINGS,
   );
 
   const [offerComparison, setOfferComparison] = useState<OfferComparisonSnapshot>(() =>
@@ -171,6 +181,26 @@ export default function App() {
     caSDI: takeHomeCtx.caSDI,
   };
 
+  useEffect(() => {
+    if (!tithingSettings.enabled || !tithingSettings.autoCalculate) return;
+    const amount = calcMonthlyTitheAmount(
+      tithingSettings,
+      takeHomeFlow.grossSalary / 12,
+      takeHomeFlow.netTakeHome / 12,
+    );
+    setCashFlowExpenses((prev) => {
+      if (prev.giving.tithing === amount) return prev;
+      return updateExpenseField(prev, "giving", "tithing", amount);
+    });
+  }, [
+    tithingSettings.enabled,
+    tithingSettings.autoCalculate,
+    tithingSettings.ratePct,
+    tithingSettings.basis,
+    takeHomeFlow.grossSalary,
+    takeHomeFlow.netTakeHome,
+  ]);
+
   // Keep URL in sync whenever key state changes
   useEffect(() => {
     writeUrlState({
@@ -188,6 +218,7 @@ export default function App() {
       budget: encodeBudgetSnapshot({
         cashFlowExpenses,
         balanceSheet,
+        tithingSettings,
         takeHomeSettings: {
           k401Type: takeHomeCtx.k401Type,
           hsaAmount: takeHomeCtx.hsaAmount,
@@ -202,7 +233,7 @@ export default function App() {
   }, [tab, benchmarkCtx, takeHomeCtx.state, takeHomeCtx.retirementRate, takeHomeCtx.filingStatus,
       takeHomeCtx.k401Type, takeHomeCtx.hsaAmount, takeHomeCtx.rothIRA, takeHomeCtx.employerMatch,
       takeHomeCtx.age50Plus, takeHomeCtx.age55Plus, takeHomeCtx.hsaCoverage,
-      offerComparison, cashFlowExpenses, balanceSheet]);
+      offerComparison, cashFlowExpenses, balanceSheet, tithingSettings]);
 
   useEffect(() => {
     document.title = `${MODULE_DESCRIPTIONS[tab].title} — RoboFinancer`;
@@ -429,6 +460,8 @@ export default function App() {
               balanceSheet={balanceSheet}
               onBalanceSheetUpdate={setBalanceSheet}
               netTakeHome={spendableTakeHome}
+              tithingSettings={tithingSettings}
+              onTithingSettingsChange={setTithingSettings}
             />
           </div>
           <div role="tabpanel" id="panel-offer" aria-labelledby="tab-offer" className={tab === "offer" ? "" : "hidden"}>

@@ -111,6 +111,11 @@ function buildCashFlowReportPayload({
         termLife: 0,
         disabilityInsurance: 0,
       },
+      giving: {
+        tithing: 0,
+        missions: 0,
+        otherGiving: 0,
+      },
     } satisfies CashFlowExpenses);
 
   const spending = calcSpendingTotals(expenses);
@@ -131,6 +136,7 @@ function buildCashFlowReportPayload({
     necessaryMonthly: spending.necessary,
     lifestyleMonthly: spending.lifestyle,
     savingsMonthly: spending.savingsRisk,
+    givingMonthly: spending.giving,
     surplusMonthly: monthlyTakeHome - spending.total,
     lineItems: [
       ...(Object.keys(expenses.necessary) as Array<keyof typeof expenses.necessary>)
@@ -153,6 +159,13 @@ function buildCashFlowReportPayload({
           group: "Savings",
           label: EXPENSE_FIELD_LABELS.savingsRisk[key],
           monthly: expenses.savingsRisk[key],
+        })),
+      ...(Object.keys(expenses.giving) as Array<keyof typeof expenses.giving>)
+        .filter((key) => expenses.giving[key] > 0)
+        .map((key) => ({
+          group: "Giving",
+          label: EXPENSE_FIELD_LABELS.giving[key],
+          monthly: expenses.giving[key],
         })),
     ],
     k401Monthly: breakdown.retirement401k / 12,

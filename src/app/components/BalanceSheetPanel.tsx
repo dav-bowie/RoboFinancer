@@ -1,3 +1,4 @@
+import { Wallet, Landmark, Car, CreditCard } from "lucide-react";
 import { fmtCurrency } from "../../lib/calculations";
 import {
   BALANCE_SHEET_LABELS,
@@ -6,11 +7,11 @@ import {
   updateBalanceSheetField,
 } from "../../lib/balanceSheetModel";
 import { BudgetLineItemEditor } from "./BudgetLineItemEditor";
+import { BudgetPanel, HighlightBox, StatTile, type BudgetAccent } from "./ui/budget-ui";
 
 interface Props {
   sheet: BalanceSheetState;
   onChange: (sheet: BalanceSheetState) => void;
-  /** Sync retirement balances from take-home tab (optional) */
   takeHomeRetirement?: {
     k401Balance?: number;
     rothIRABalance?: number;
@@ -18,30 +19,36 @@ interface Props {
   };
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border bg-secondary/30">
-        <span className="text-xs tracking-widest uppercase text-muted-foreground">{title}</span>
-      </div>
-      <div className="p-4 space-y-2">{children}</div>
-    </div>
-  );
-}
+const SECTION_META: Record<
+  keyof typeof BALANCE_SHEET_LABELS,
+  { accent: BudgetAccent; icon: typeof Wallet; description: string }
+> = {
+  nonRetirement: {
+    accent: "sky",
+    icon: Wallet,
+    description: "Cash, savings, brokerage, and other taxable accounts.",
+  },
+  retirement: {
+    accent: "indigo",
+    icon: Landmark,
+    description: "401(k), Roth IRA, HSA, and other tax-advantaged balances.",
+  },
+  assets: {
+    accent: "emerald",
+    icon: Car,
+    description: "Home equity, vehicles, and other personal assets.",
+  },
+  liabilities: {
+    accent: "rose",
+    icon: CreditCard,
+    description: "Mortgages, student loans, credit cards, and other debt.",
+  },
+};
 
 export function BalanceSheetPanel({ sheet, onChange, takeHomeRetirement }: Props) {
   const totals = calcBalanceSheetTotals(sheet);
 
-  const sections: Array<{
-    key: keyof typeof BALANCE_SHEET_LABELS;
-    title: string;
-  }> = [
+  const sections: Array<{ key: keyof typeof BALANCE_SHEET_LABELS; title: string }> = [
     { key: "nonRetirement", title: "Non-Retirement Accounts" },
     { key: "retirement", title: "Retirement Accounts" },
     { key: "assets", title: "Personal Assets" },
@@ -49,46 +56,70 @@ export function BalanceSheetPanel({ sheet, onChange, takeHomeRetirement }: Props
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Total Assets", value: totals.totalAssets, color: "text-foreground" },
-          { label: "Total Liabilities", value: totals.liabilitiesTotal, color: "text-red-400" },
-          { label: "Net Worth", value: totals.netWorth, color: totals.netWorth >= 0 ? "text-emerald-400" : "text-red-400" },
-          { label: "Retirement", value: totals.retirementTotal, color: "text-indigo-400" },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-lg border border-border bg-card p-3">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
-            <div className={`font-mono text-base ${color}`}>{fmtCurrency(value)}</div>
+    <div className="space-y-5">
+      <BudgetPanel
+        accent="emerald"
+        icon={Wallet}
+        title="Net Worth Snapshot"
+        description="Your full balance sheet at a glance — assets minus liabilities."
+        stats={
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <StatTile label="Total assets" value={fmtCurrency(totals.totalAssets)} accent="emerald" />
+            <StatTile label="Liabilities" value={fmtCurrency(totals.liabilitiesTotal)} valueClassName="text-red-400" />
+            <StatTile
+              label="Net worth"
+              value={fmtCurrency(totals.netWorth)}
+              valueClassName={totals.netWorth >= 0 ? "text-emerald-400" : "text-red-400"}
+            />
+            <StatTile label="Retirement" value={fmtCurrency(totals.retirementTotal)} accent="indigo" />
           </div>
-        ))}
-      </div>
+        }
+      />
 
       {(takeHomeRetirement?.k401Balance != null ||
         takeHomeRetirement?.rothIRABalance != null ||
         takeHomeRetirement?.hsaBalance != null) && (
-        <div className="rounded border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
-          Retirement account balances can reflect your Take-Home contribution amounts. Edit values below for full
-          balance sheet totals.
-        </div>
+        <HighlightBox accent="indigo" kicker="Synced from Take-Home">
+          Retirement balances can reflect your contribution settings. Edit below for your full picture.
+        </HighlightBox>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {sections.map(({ key, title }) => (
-          <Section key={key} title={title}>
-            {(Object.keys(BALANCE_SHEET_LABELS[key]) as Array<keyof (typeof BALANCE_SHEET_LABELS)[typeof key]>).map(
-              (field) => (
-                <BudgetLineItemEditor
-                  key={String(field)}
-                  variant="row"
-                  label={BALANCE_SHEET_LABELS[key][field]}
-                  value={sheet[key][field as keyof BalanceSheetState[typeof key]] as number}
-                  onChange={(value) => onChange(updateBalanceSheetField(sheet, key, field, value))}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {sections.map(({ key, title }) => {
+          const meta = SECTION_META[key];
+          const sectionTotal = Object.values(sheet[key]).reduce((a, b) => a + b, 0);
+          return (
+            <BudgetPanel
+              key={key}
+              accent={meta.accent}
+              icon={meta.icon}
+              title={title}
+              description={meta.description}
+              stats={
+                <StatTile
+                  label="Section total"
+                  value={fmtCurrency(sectionTotal)}
+                  accent={meta.accent}
                 />
-              ),
-            )}
-          </Section>
-        ))}
+              }
+            >
+              <div className="space-y-2 pt-5">
+                {(Object.keys(BALANCE_SHEET_LABELS[key]) as Array<keyof (typeof BALANCE_SHEET_LABELS)[typeof key]>).map(
+                  (field) => (
+                    <BudgetLineItemEditor
+                      key={String(field)}
+                      variant="row"
+                      accent={meta.accent}
+                      label={BALANCE_SHEET_LABELS[key][field]}
+                      value={sheet[key][field as keyof BalanceSheetState[typeof key]] as number}
+                      onChange={(value) => onChange(updateBalanceSheetField(sheet, key, field, value))}
+                    />
+                  ),
+                )}
+              </div>
+            </BudgetPanel>
+          );
+        })}
       </div>
     </div>
   );

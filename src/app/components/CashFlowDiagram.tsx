@@ -32,6 +32,7 @@ const TONE_STYLES: Record<NonNullable<CashFlowNodeData["tone"]>, string> = {
   positive: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
   negative: "border-red-500/30 bg-red-500/5 text-red-300",
   warning: "border-amber-500/40 bg-amber-500/10 text-amber-400",
+  giving: "border-amber-500/45 bg-amber-500/12 text-amber-300",
 };
 
 function CashFlowNode({ data, selected, id }: NodeProps<Node<CashFlowNodeData>>) {
@@ -100,27 +101,26 @@ function FitViewOnChange({ deps }: { deps: unknown[] }) {
 
 export function FlowSummaryBar({ state }: { state: CashFlowState }) {
   const reconciliation = useMemo(() => validateReconciliation(state), [state]);
+  const positive = reconciliation.surplus >= 0;
 
   return (
     <div
-      className={`rounded-lg border px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs ${
-        reconciliation.balanced
-          ? "border-emerald-500/30 bg-emerald-500/5"
-          : reconciliation.surplus < 0
-            ? "border-red-500/30 bg-red-500/5"
-            : "border-amber-500/30 bg-amber-500/5"
+      className={`rounded-xl border px-5 py-4 flex flex-wrap items-center justify-between gap-3 transition-all duration-300 ${
+        positive
+          ? "border-emerald-500/35 bg-gradient-to-r from-emerald-500/[0.08] via-card to-card shadow-[0_0_32px_-12px_rgba(16,185,129,0.3)]"
+          : "border-red-500/35 bg-gradient-to-r from-red-500/[0.08] via-card to-card"
       }`}
     >
-      <span className="text-muted-foreground">
-        Take-home {fmtCurrency(reconciliation.monthlyTakeHome)}/mo · Spending{" "}
-        {fmtCurrency(reconciliation.totalSpending)}/mo
-      </span>
-      <span
-        className={`font-mono font-medium ${
-          reconciliation.surplus >= 0 ? "text-emerald-400" : "text-red-400"
-        }`}
-      >
-        {reconciliation.surplus >= 0 ? "Surplus" : "Shortage"}: {fmtCurrency(Math.abs(reconciliation.surplus))}/mo
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <span className="text-muted-foreground">
+          Take-home <span className="font-mono text-foreground">{fmtCurrency(reconciliation.monthlyTakeHome)}/mo</span>
+        </span>
+        <span className="text-muted-foreground">
+          Spending <span className="font-mono text-foreground">{fmtCurrency(reconciliation.totalSpending)}/mo</span>
+        </span>
+      </div>
+      <span className={`font-mono text-sm font-medium ${positive ? "text-emerald-400" : "text-red-400"}`}>
+        {positive ? "Surplus" : "Shortage"}: {fmtCurrency(Math.abs(reconciliation.surplus))}/mo
       </span>
     </div>
   );

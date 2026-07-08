@@ -2,6 +2,8 @@ import type { CashFlowExpenses } from "./cashFlowModel";
 import { DEFAULT_CASH_FLOW_EXPENSES } from "./cashFlowModel";
 import type { BalanceSheetState } from "./balanceSheetModel";
 import { DEFAULT_BALANCE_SHEET } from "./balanceSheetModel";
+import type { TithingSettings } from "./tithingModel";
+import { DEFAULT_TITHING_SETTINGS } from "./tithingModel";
 
 export interface TakeHomeUrlSettings {
   k401Type: "traditional" | "roth";
@@ -17,6 +19,7 @@ export interface BudgetUrlSnapshot {
   cashFlowExpenses: CashFlowExpenses;
   balanceSheet: BalanceSheetState;
   takeHomeSettings?: TakeHomeUrlSettings;
+  tithingSettings?: TithingSettings;
 }
 
 function encode(obj: unknown): string | undefined {
@@ -39,17 +42,25 @@ export function encodeBudgetSnapshot(snapshot: BudgetUrlSnapshot): string | unde
   const differs =
     JSON.stringify(snapshot.cashFlowExpenses) !== JSON.stringify(DEFAULT_CASH_FLOW_EXPENSES) ||
     JSON.stringify(snapshot.balanceSheet) !== JSON.stringify(DEFAULT_BALANCE_SHEET) ||
-    snapshot.takeHomeSettings != null;
+    snapshot.takeHomeSettings != null ||
+    (snapshot.tithingSettings != null &&
+      JSON.stringify(snapshot.tithingSettings) !== JSON.stringify(DEFAULT_TITHING_SETTINGS));
   if (!differs) return undefined;
-  return encode({ e: snapshot.cashFlowExpenses, b: snapshot.balanceSheet, t: snapshot.takeHomeSettings });
+  return encode({
+    e: snapshot.cashFlowExpenses,
+    b: snapshot.balanceSheet,
+    t: snapshot.takeHomeSettings,
+    g: snapshot.tithingSettings,
+  });
 }
 
 export function decodeBudgetSnapshot(raw: string | null): Partial<BudgetUrlSnapshot> | null {
-  const parsed = decode<{ e?: CashFlowExpenses; b?: BalanceSheetState; t?: TakeHomeUrlSettings }>(raw);
+  const parsed = decode<{ e?: CashFlowExpenses; b?: BalanceSheetState; t?: TakeHomeUrlSettings; g?: TithingSettings }>(raw);
   if (!parsed) return null;
   return {
     cashFlowExpenses: parsed.e,
     balanceSheet: parsed.b,
     takeHomeSettings: parsed.t,
+    tithingSettings: parsed.g,
   };
 }

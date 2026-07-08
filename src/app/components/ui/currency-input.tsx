@@ -15,7 +15,17 @@ interface CurrencyInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
 }
 
 /** Text-based currency field — avoids leading-zero quirks of controlled number inputs. */
-export function CurrencyInput({ value, onChange, min = 0, max, className, onFocus, onBlur, ...rest }: CurrencyInputProps) {
+export function CurrencyInput({
+  value,
+  onChange,
+  min = 0,
+  max,
+  className,
+  disabled,
+  onFocus,
+  onBlur,
+  ...rest
+}: CurrencyInputProps) {
   const [text, setText] = useState(() => String(value));
   const focusedRef = useRef(false);
 
@@ -41,15 +51,18 @@ export function CurrencyInput({ value, onChange, min = 0, max, className, onFocu
       autoComplete="off"
       value={text}
       onFocus={(e) => {
+        if (disabled) return;
         focusedRef.current = true;
         onFocus?.(e);
       }}
       onBlur={(e) => {
+        if (disabled) return;
         focusedRef.current = false;
         commit(text);
         onBlur?.(e);
       }}
       onChange={(e) => {
+        if (disabled) return;
         const raw = e.target.value.replace(/\D/g, "");
         setText(raw);
         if (raw === "") {
@@ -58,6 +71,7 @@ export function CurrencyInput({ value, onChange, min = 0, max, className, onFocu
         }
         onChange(clamp(Number(raw), min, max));
       }}
+      disabled={disabled}
       className={className}
     />
   );

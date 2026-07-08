@@ -15,6 +15,7 @@ export interface CashFlowReportData {
   necessaryMonthly: number;
   lifestyleMonthly: number;
   savingsMonthly: number;
+  givingMonthly?: number;
   surplusMonthly: number;
   k401Monthly: number;
   hsaMonthly: number;
@@ -274,6 +275,9 @@ function drawCashFlowDiagramPage(doc: jsPDF, cf: CashFlowReportData, ML: number,
 
   // Row 4: Spending tiers
   const tiers = [
+    ...(cf.givingMonthly && cf.givingMonthly > 0
+      ? [{ label: 'Faith & Giving', monthly: cf.givingMonthly, color: [245, 158, 11] as RGB }]
+      : []),
     { label: 'Necessary & Essential', monthly: cf.necessaryMonthly, color: C.purple as RGB },
     { label: 'Lifestyle', monthly: cf.lifestyleMonthly, color: [245, 158, 11] as RGB },
     { label: 'Savings & Risk', monthly: cf.savingsMonthly, color: C.emerald as RGB },

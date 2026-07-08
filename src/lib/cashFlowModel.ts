@@ -28,10 +28,17 @@ export interface SavingsRiskExpenses {
   disabilityInsurance: number;
 }
 
+export interface GivingExpenses {
+  tithing: number;
+  missions: number;
+  otherGiving: number;
+}
+
 export interface CashFlowExpenses {
   necessary: NecessaryExpenses;
   lifestyle: LifestyleExpenses;
   savingsRisk: SavingsRiskExpenses;
+  giving: GivingExpenses;
 }
 
 export interface TakeHomeFlowInput {
@@ -69,10 +76,10 @@ export interface CashFlowNodeData {
   annual: number;
   pctOfTakeHome?: number;
   kind: CashFlowNodeKind;
-  category?: "necessary" | "lifestyle" | "savingsRisk";
+  category?: "necessary" | "lifestyle" | "savingsRisk" | "giving";
   fieldKey?: string;
   editable?: boolean;
-  tone?: "neutral" | "positive" | "negative" | "warning";
+  tone?: "neutral" | "positive" | "negative" | "warning" | "giving";
   [key: string]: unknown;
 }
 
@@ -101,7 +108,22 @@ export const DEFAULT_CASH_FLOW_EXPENSES: CashFlowExpenses = {
     termLife: 0,
     disabilityInsurance: 0,
   },
+  giving: {
+    tithing: 0,
+    missions: 0,
+    otherGiving: 0,
+  },
 };
+
+/** Merge partial/legacy expense snapshots (pre-giving URLs) with defaults */
+export function normalizeCashFlowExpenses(expenses: Partial<CashFlowExpenses>): CashFlowExpenses {
+  return {
+    necessary: { ...DEFAULT_CASH_FLOW_EXPENSES.necessary, ...expenses.necessary },
+    lifestyle: { ...DEFAULT_CASH_FLOW_EXPENSES.lifestyle, ...expenses.lifestyle },
+    savingsRisk: { ...DEFAULT_CASH_FLOW_EXPENSES.savingsRisk, ...expenses.savingsRisk },
+    giving: { ...DEFAULT_CASH_FLOW_EXPENSES.giving, ...expenses.giving },
+  };
+}
 
 /** Legacy 4-field shape for Take-Home PDF export */
 export function toLegacyBudgetExpenses(expenses: CashFlowExpenses) {
@@ -129,8 +151,8 @@ export function getMonthlyTakeHome(state: CashFlowState): number {
 
 /** Spending outflows for surplus — Roth is already deducted from spendable income */
 export function calcBudgetOutflows(expenses: CashFlowExpenses): number {
-  const { necessary, lifestyle, savingsRisk } = calcSpendingTotals(expenses);
-  return necessary + lifestyle + (savingsRisk - expenses.savingsRisk.rothIRA);
+  const { necessary, lifestyle, savingsRisk, giving } = calcSpendingTotals(expenses);
+  return necessary + lifestyle + giving + (savingsRisk - expenses.savingsRisk.rothIRA);
 }
 
 export function getMonthlyTaxes(takeHome: TakeHomeFlowInput): number {
@@ -155,7 +177,8 @@ export function calcSpendingTotals(expenses: CashFlowExpenses) {
   const necessary = sumRecord(expenses.necessary);
   const lifestyle = sumRecord(expenses.lifestyle);
   const savingsRisk = sumRecord(expenses.savingsRisk);
-  return { necessary, lifestyle, savingsRisk, total: necessary + lifestyle + savingsRisk };
+  const giving = sumRecord(expenses.giving);
+  return { necessary, lifestyle, savingsRisk, giving, total: necessary + lifestyle + savingsRisk + giving };
 }
 
 export function calcSurplus(state: CashFlowState): number {
@@ -198,6 +221,12 @@ const SAVINGS_RISK_LABELS: Record<keyof SavingsRiskExpenses, string> = {
   rothIRA: "Roth IRA",
   termLife: "Term Life",
   disabilityInsurance: "Disability Insurance",
+};
+
+const GIVING_LABELS: Record<keyof GivingExpenses, string> = {
+  tithing: "Tithe (Church)",
+  missions: "Missions & Outreach",
+  otherGiving: "Other Generosity",
 };
 
 function pct(monthly: number, base: number) {
@@ -255,10 +284,17 @@ export function buildCashFlowGraph(state: CashFlowState): {
   const categories: Array<{
     id: string;
     label: string;
-    category: "necessary" | "lifestyle" | "savingsRisk";
+    category: "necessary" | "lifestyle" | "savingsRisk" | "giving";
     items: Record<string, number>;
     labels: Record<string, string>;
   }> = [
+    {
+      id: "giving",
+      label: "Faith & Giving",
+      category: "giving",
+      items: expenses.giving,
+      labels: GIVING_LABELS,
+    },
     {
       id: "necessary",
       label: "Necessary & Essential",
@@ -303,7 +339,12 @@ export function buildCashFlowGraph(state: CashFlowState): {
         pctOfTakeHome: pct(total, monthlyTakeHome),
         kind: "category",
         category: cat.category,
-        tone: cat.category === "savingsRisk" ? "positive" : "neutral",
+        tone:
+          cat.category === "savingsRisk"
+            ? "positive"
+            : cat.category === "giving"
+              ? "giving"
+              : "neutral",
       }),
     );
 
@@ -320,7 +361,7 @@ export function buildCashFlowGraph(state: CashFlowState): {
           category: cat.category,
           fieldKey: key,
           editable: true,
-          tone: "neutral",
+          tone: cat.category === "giving" ? "giving" : "neutral",
         }),
       );
       edges.push(edge(`e-${cat.id}-${itemId}`, cat.id, itemId, fmtCurrency(monthly)));
@@ -428,7 +469,7 @@ export function buildCashFlowGraph(state: CashFlowState): {
 
 export function updateExpenseField(
   expenses: CashFlowExpenses,
-  category: "necessary" | "lifestyle" | "savingsRisk",
+  category: "necessary" | "lifestyle" | "savingsRisk" | "giving",
   fieldKey: string,
   value: number,
 ): CashFlowExpenses {
@@ -444,4 +485,5 @@ export const EXPENSE_FIELD_LABELS = {
   necessary: NECESSARY_LABELS,
   lifestyle: LIFESTYLE_LABELS,
   savingsRisk: SAVINGS_RISK_LABELS,
-};
+  giving: GIVING_LABELS,
+} as const;

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, type Dispatch, type SetStateAction } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from "recharts";
-import { Link2, Check } from "lucide-react";
+import { Link2, Check, Home, Sparkles, Shield, Heart, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { fmtCurrency } from "../../lib/calculations";
 import {
@@ -8,6 +8,7 @@ import {
   calcSurplus,
   EXPENSE_FIELD_LABELS,
   getMonthlyTakeHome,
+  sumRecord,
   updateExpenseField,
   type CashFlowExpenses,
   type CashFlowState,
@@ -19,12 +20,15 @@ import { CashFlowDiagram, FlowSummaryBar } from "./CashFlowDiagram";
 import { BalanceSheetPanel } from "./BalanceSheetPanel";
 import { BudgetLineItemEditor } from "./BudgetLineItemEditor";
 import { AllocationBucketsVisual } from "./AllocationBucketsVisual";
+import { TithingPanel } from "./TithingPanel";
+import type { TithingSettings } from "../../lib/tithingModel";
 import {
   applyAllocationSuggestions,
   buildAllocationPlan,
   DEFAULT_ALLOCATION_PREFERENCES,
   type AllocationPreferences,
 } from "../../lib/allocationModel";
+import { BudgetPanel, BudgetSubTabs, HighlightBox, StatTile, ACCENT, type BudgetAccent } from "./ui/budget-ui";
 
 type BudgetSubView = "flow" | "allocate" | "framework" | "balance";
 
@@ -35,6 +39,8 @@ interface Props {
   balanceSheet: BalanceSheetState;
   onBalanceSheetUpdate: (sheet: BalanceSheetState) => void;
   netTakeHome: number;
+  tithingSettings: TithingSettings;
+  onTithingSettingsChange: (settings: TithingSettings) => void;
 }
 
 const SUB_VIEWS: { id: BudgetSubView; label: string }[] = [
@@ -52,7 +58,7 @@ const FRAMEWORKS = [
 ];
 
 const CATEGORY_COLORS = { needs: "#6366f1", wants: "#f59e0b", savings: "#10b981" } as const;
-const EXPENSE_COLORS = { housing: "#818cf8", food: "#6366f1", transport: "#4f46e5", subscriptions: "#fbbf24", entertainment: "#f59e0b", other: "#d97706", savings: "#10b981", deficit: "#ef4444" } as const;
+const EXPENSE_COLORS = { housing: "#818cf8", food: "#6366f1", transport: "#4f46e5", subscriptions: "#fbbf24", entertainment: "#f59e0b", other: "#d97706", savings: "#10b981", giving: "#f59e0b", deficit: "#ef4444" } as const;
 
 function FrameworkSplitBar({ needs, wants, savings }: { needs: number; wants: number; savings: number }) {
   return (
@@ -64,6 +70,32 @@ function FrameworkSplitBar({ needs, wants, savings }: { needs: number; wants: nu
   );
 }
 
+const EXPENSE_SECTION_META: Record<
+  "necessary" | "lifestyle" | "savingsRisk" | "giving",
+  { accent: BudgetAccent; icon: typeof Home; description: string }
+> = {
+  necessary: {
+    accent: "indigo",
+    icon: Home,
+    description: "Housing, food, transport, and other essentials that keep life running.",
+  },
+  lifestyle: {
+    accent: "violet",
+    icon: Sparkles,
+    description: "Dining, entertainment, hobbies, and the fun stuff — guilt-free when planned.",
+  },
+  savingsRisk: {
+    accent: "emerald",
+    icon: Shield,
+    description: "Emergency fund, investments, insurance, and long-term security.",
+  },
+  giving: {
+    accent: "amber",
+    icon: Heart,
+    description: "Missions, outreach, and generosity beyond your tithe.",
+  },
+};
+
 function FrameworkCard({ framework, selected, monthlyIncome, onSelect }: { framework: (typeof FRAMEWORKS)[number]; selected: boolean; monthlyIncome: number; onSelect: () => void }) {
   const segments = [
     { key: "needs", pct: framework.needs, label: "Needs", color: CATEGORY_COLORS.needs },
@@ -71,31 +103,45 @@ function FrameworkCard({ framework, selected, monthlyIncome, onSelect }: { frame
     { key: "savings", pct: framework.savings, label: "Savings", color: CATEGORY_COLORS.savings },
   ];
   return (
-    <button type="button" onClick={onSelect} className={`w-full text-left rounded-lg border p-4 transition-all ${selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-secondary/50 hover:bg-secondary"}`}>
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full text-left rounded-xl border p-5 transition-all duration-200 ${
+        selected
+          ? "border-emerald-500/50 bg-gradient-to-br from-emerald-500/[0.08] via-card to-card ring-1 ring-emerald-500/20 shadow-[0_0_40px_-12px_rgba(16,185,129,0.35)]"
+          : "border-border bg-card/60 hover:border-border hover:bg-card"
+      }`}
+    >
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
           <div className="flex items-baseline gap-2">
-            <span className={`font-mono text-lg ${selected ? "text-primary" : "text-foreground"}`}>{framework.label}</span>
+            <span className={`font-mono text-lg ${selected ? "text-emerald-400" : "text-foreground"}`}>{framework.label}</span>
             <span className="text-xs text-muted-foreground">{framework.name}</span>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{framework.description}</p>
+          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{framework.description}</p>
         </div>
-        {selected && <div className="shrink-0 rounded-full bg-primary/15 p-1"><Check size={14} className="text-primary" /></div>}
+        {selected && (
+          <div className="shrink-0 rounded-full bg-emerald-500/15 p-1.5">
+            <Check size={14} className="text-emerald-400" />
+          </div>
+        )}
       </div>
       <FrameworkSplitBar needs={framework.needs} wants={framework.wants} savings={framework.savings} />
       <div className="grid grid-cols-3 gap-2 mt-3">
         {segments.map(({ key, pct, label, color }) => (
-          <div key={key} className="rounded border border-border/60 bg-background/40 px-2 py-1.5">
+          <div key={key} className="rounded-lg border border-border/70 bg-background/50 px-2 py-1.5">
             <div className="flex items-center gap-1 mb-0.5">
               <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
             </div>
             <div className="font-mono text-sm text-foreground">{Math.round(pct * 100)}%</div>
-            {monthlyIncome > 0 && <div className="text-[10px] text-muted-foreground font-mono">{fmtCurrency(monthlyIncome * pct)}/mo</div>}
+            {monthlyIncome > 0 && (
+              <div className="text-[10px] text-muted-foreground font-mono">{fmtCurrency(monthlyIncome * pct)}/mo</div>
+            )}
           </div>
         ))}
       </div>
-      <p className="text-[10px] text-muted-foreground mt-2.5">Best for: {framework.bestFor}</p>
+      <p className="text-[11px] text-muted-foreground mt-3">Best for: {framework.bestFor}</p>
     </button>
   );
 }
@@ -105,28 +151,50 @@ function ExpenseSectionEditor({
   category,
   expenses,
   onUpdate,
+  fieldFilter,
 }: {
   title: string;
-  category: "necessary" | "lifestyle" | "savingsRisk";
+  category: "necessary" | "lifestyle" | "savingsRisk" | "giving";
   expenses: CashFlowExpenses;
   onUpdate: (expenses: CashFlowExpenses) => void;
+  fieldFilter?: (key: string) => boolean;
 }) {
+  const meta = EXPENSE_SECTION_META[category];
   const items = expenses[category];
   const labels = EXPENSE_FIELD_LABELS[category];
+  const keys = (Object.keys(labels) as Array<keyof typeof labels>).filter((key) =>
+    fieldFilter ? fieldFilter(String(key)) : true,
+  );
+  const monthlyTotal = sumRecord(
+    Object.fromEntries(keys.map((k) => [k, items[k as keyof typeof items]])) as Record<string, number>,
+  );
+
   return (
-    <section className="rounded-xl border border-border bg-card/50 p-5 space-y-4">
-      <h3 className="text-sm font-medium text-foreground">{title}</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {(Object.keys(labels) as Array<keyof typeof labels>).map((key) => (
+    <BudgetPanel
+      accent={meta.accent}
+      icon={meta.icon}
+      title={title}
+      description={meta.description}
+      stats={
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-lg">
+          <StatTile label="Monthly total" value={fmtCurrency(monthlyTotal)} accent={meta.accent} />
+          <StatTile label="Annual total" value={fmtCurrency(monthlyTotal * 12)} />
+          <StatTile label="Line items" value={String(keys.length)} />
+        </div>
+      }
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 pt-5">
+        {keys.map((key) => (
           <BudgetLineItemEditor
             key={String(key)}
+            accent={meta.accent}
             label={labels[key]}
             value={items[key as keyof typeof items]}
             onChange={(value) => onUpdate(updateExpenseField(expenses, category, String(key), value))}
           />
         ))}
       </div>
-    </section>
+    </BudgetPanel>
   );
 }
 
@@ -137,6 +205,8 @@ export function BudgetModule({
   balanceSheet,
   onBalanceSheetUpdate,
   netTakeHome,
+  tithingSettings,
+  onTithingSettingsChange,
 }: Props) {
   const [subView, setSubView] = useState<BudgetSubView>("flow");
   const [frameworkId, setFrameworkId] = useState("50-30-20");
@@ -188,7 +258,10 @@ export function BudgetModule({
     { category: "Savings", Allocated: Math.round(allocated.savings), Actual: Math.round(actualSpending.savings) },
   ];
 
+  const givingTotal = cashFlowExpenses.giving.tithing + cashFlowExpenses.giving.missions + cashFlowExpenses.giving.otherGiving;
+
   const pieChartData = [
+    ...(givingTotal > 0 ? [{ name: "Faith & Giving", value: givingTotal, color: EXPENSE_COLORS.giving }] : []),
     { name: "Housing", value: housingAmt, color: EXPENSE_COLORS.housing },
     { name: "Food & Groceries", value: food, color: EXPENSE_COLORS.food },
     { name: "Transport", value: transport, color: EXPENSE_COLORS.transport },
@@ -230,48 +303,47 @@ export function BudgetModule({
 
   return (
     <div className="space-y-6">
-      <div
-        className="flex gap-1 overflow-x-auto scrollbar-none border-b border-border pb-px"
-        role="tablist"
-        aria-label="Budget views"
-      >
-        {SUB_VIEWS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={subView === id}
-            onClick={() => setSubView(id)}
-            className={`shrink-0 px-4 py-2.5 text-xs border-b-2 transition-colors whitespace-nowrap -mb-px ${
-              subView === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <BudgetSubTabs tabs={SUB_VIEWS} active={subView} onChange={setSubView} label="Budget views" />
 
       {subView === "flow" && (
         <div className="space-y-5 pt-1">
           <FlowSummaryBar state={cashFlowState} />
 
           <div className="space-y-6">
+            <TithingPanel
+              settings={tithingSettings}
+              onSettingsChange={onTithingSettingsChange}
+              takeHome={takeHome}
+              monthlyTithe={cashFlowExpenses.giving.tithing}
+              onMonthlyTitheChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, "giving", "tithing", v))}
+              monthlySurplus={surplus}
+            />
+
             <div className="space-y-5">
               <ExpenseSectionEditor title="Necessary & Essential" category="necessary" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Lifestyle & Discretionary" category="lifestyle" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
               <ExpenseSectionEditor title="Savings & Risk Management" category="savingsRisk" expenses={cashFlowExpenses} onUpdate={onCashFlowExpensesUpdate} />
+              {tithingSettings.enabled && (
+                <ExpenseSectionEditor
+                  title="Additional Generosity"
+                  category="giving"
+                  expenses={cashFlowExpenses}
+                  onUpdate={onCashFlowExpensesUpdate}
+                  fieldFilter={(key) => key !== "tithing"}
+                />
+              )}
             </div>
 
             {selectedNode && (
-              <div className="rounded-xl border border-primary/30 bg-primary/5 p-5">
-                <div className="text-sm text-primary font-medium mb-3">Editing: {selectedNode.label}</div>
+              <HighlightBox accent="emerald" kicker={`Editing · ${selectedNode.label}`}>
                 <BudgetLineItemEditor
                   variant="row"
+                  accent="emerald"
                   label={selectedNode.label}
                   value={selectedNode.value}
                   onChange={(v) => onCashFlowExpensesUpdate(updateExpenseField(cashFlowExpenses, selectedNode.category, selectedNode.fieldKey, v))}
                 />
-              </div>
+              </HighlightBox>
             )}
 
             <CashFlowDiagram
@@ -302,29 +374,60 @@ export function BudgetModule({
       {subView === "framework" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-5">
-            <div>
-              <label className="block mb-1 text-xs tracking-widest uppercase text-muted-foreground">Budget Framework</label>
-              <p className="text-[11px] text-muted-foreground mb-3">Each number is the % of take-home for needs, wants, or savings.</p>
-              <div className="space-y-2">{FRAMEWORKS.map((f) => <FrameworkCard key={f.id} framework={f} selected={frameworkId === f.id} monthlyIncome={monthlyIncome} onSelect={() => setFrameworkId(f.id)} />)}</div>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <label className="text-xs tracking-widest uppercase text-muted-foreground">Monthly Take-Home</label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Drag to adjust or sync from the calculator</p>
-                </div>
-                {netTakeHome > 0 && !isUsingCalculator && (
-                  <button type="button" onClick={() => setCustomMonthlyTakeHome(null)} className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
+            <BudgetPanel
+              accent="emerald"
+              icon={LayoutGrid}
+              title="Budget Framework"
+              description="Each split shows the % of take-home for needs, wants, or savings."
+            >
+              <div className="space-y-3 pt-5">
+                {FRAMEWORKS.map((f) => (
+                  <FrameworkCard
+                    key={f.id}
+                    framework={f}
+                    selected={frameworkId === f.id}
+                    monthlyIncome={monthlyIncome}
+                    onSelect={() => setFrameworkId(f.id)}
+                  />
+                ))}
+              </div>
+            </BudgetPanel>
+
+            <BudgetPanel
+              accent="sky"
+              icon={LayoutGrid}
+              title="Monthly Take-Home"
+              description="Drag to adjust or sync from the calculator."
+              headerExtra={
+                netTakeHome > 0 && !isUsingCalculator ? (
+                  <button
+                    type="button"
+                    onClick={() => setCustomMonthlyTakeHome(null)}
+                    className="flex items-center gap-1 text-xs text-sky-400 hover:underline shrink-0"
+                  >
                     <Link2 size={12} /> Sync calculator
                   </button>
-                )}
+                ) : undefined
+              }
+              stats={
+                <div className="grid grid-cols-2 gap-2 max-w-sm">
+                  <StatTile label="Monthly" value={fmtCurrency(Math.round(monthlyIncome))} accent="sky" />
+                  <StatTile label="Annual" value={fmtCurrency(income)} />
+                </div>
+              }
+            >
+              <div className="pt-5">
+                <RangeSlider
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={50}
+                  value={Math.min(sliderMax, Math.max(sliderMin, Math.round(monthlyIncome)))}
+                  onChange={setCustomMonthlyTakeHome}
+                  accentColor={ACCENT.sky.slider}
+                  aria-label="Monthly take-home pay"
+                />
               </div>
-              <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3">
-                <div className="font-mono text-3xl text-foreground">{fmtCurrency(Math.round(monthlyIncome))}</div>
-                <div className="text-xs text-muted-foreground mt-1">{fmtCurrency(income)} per year</div>
-              </div>
-              <RangeSlider min={sliderMin} max={sliderMax} step={50} value={Math.min(sliderMax, Math.max(sliderMin, Math.round(monthlyIncome)))} onChange={setCustomMonthlyTakeHome} accentColor="#10b981" aria-label="Monthly take-home pay" />
-            </div>
+            </BudgetPanel>
           </div>
           <FrameworkOutput chartData={chartData} pieChartData={pieChartData} monthlyIncome={monthlyIncome} surplus={surplus} framework={framework} actualSpending={actualSpending} allocated={allocated} />
         </div>
@@ -334,9 +437,9 @@ export function BudgetModule({
 }
 
 function buildSelectedNodeMeta(nodeId: string, expenses: CashFlowExpenses) {
-  const match = nodeId.match(/^(necessary|lifestyle|savingsRisk)-(.+)$/);
+  const match = nodeId.match(/^(necessary|lifestyle|savingsRisk|giving)-(.+)$/);
   if (!match) return null;
-  const category = match[1] as "necessary" | "lifestyle" | "savingsRisk";
+  const category = match[1] as "necessary" | "lifestyle" | "savingsRisk" | "giving";
   const fieldKey = match[2];
   const labels = EXPENSE_FIELD_LABELS[category];
   if (!(fieldKey in labels)) return null;
@@ -350,19 +453,28 @@ function buildSelectedNodeMeta(nodeId: string, expenses: CashFlowExpenses) {
 
 function FrameworkOutput({ chartData, pieChartData, monthlyIncome, surplus, framework, actualSpending, allocated }: any) {
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded border border-border bg-card p-3"><div className="text-xs text-muted-foreground mb-1">Monthly Income</div><div className="font-mono text-base">{fmtCurrency(monthlyIncome)}</div></div>
-        <div className="rounded border border-border bg-card p-3"><div className="text-xs text-muted-foreground mb-1">Surplus / Deficit</div><div className={`font-mono text-base ${surplus >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtCurrency(surplus)}</div></div>
-        <div className="rounded border border-border bg-card p-3"><div className="text-xs text-muted-foreground mb-1">Savings Rate</div><div className="font-mono text-base text-emerald-400">{((actualSpending.savings / (monthlyIncome || 1)) * 100).toFixed(1)}%</div></div>
-      </div>
-      <div className="rounded border border-border bg-card p-4">
-        <div className="mb-3">
-          <div className="text-xs tracking-widest uppercase text-muted-foreground">Monthly Breakdown</div>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Where your take-home goes each month — one slice per expense line item from the Flow Diagram.
-          </p>
+    <BudgetPanel
+      accent="violet"
+      icon={LayoutGrid}
+      title="Your Breakdown"
+      description={`How your take-home compares to the ${framework.label} framework.`}
+      stats={
+        <div className="grid grid-cols-3 gap-2">
+          <StatTile label="Monthly income" value={fmtCurrency(monthlyIncome)} accent="violet" />
+          <StatTile
+            label="Surplus / deficit"
+            value={fmtCurrency(surplus)}
+            valueClassName={surplus >= 0 ? "text-emerald-400" : "text-red-400"}
+          />
+          <StatTile
+            label="Savings rate"
+            value={`${((actualSpending.savings / (monthlyIncome || 1)) * 100).toFixed(1)}%`}
+            accent="emerald"
+          />
         </div>
+      }
+    >
+      <div className="space-y-4 pt-5">
         <ResponsiveContainer width="100%" height={220}>
           <PieChart>
             <Pie
@@ -426,49 +538,35 @@ function FrameworkOutput({ chartData, pieChartData, monthlyIncome, surplus, fram
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="rounded border border-border bg-card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs tracking-widest uppercase text-muted-foreground">Allocated vs Actual</div>
-          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-slate-400/80 border border-slate-300/40" />
-              Target
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-primary" />
-              Actual
-            </span>
+
+        <div className="rounded-lg border border-border/70 bg-background/30 p-4 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-medium text-foreground">Allocated vs Actual</div>
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-slate-400/80 border border-slate-300/40" />
+                Target
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                Actual
+              </span>
+            </div>
           </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={chartData} barGap={4}>
+              <XAxis dataKey="category" tick={{ fill: "#6b6b7b", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: "#6b6b7b", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} width={36} />
+              <Tooltip
+                formatter={(value: number, name: string) => [fmtCurrency(value), name === "Allocated" ? "Target" : "Actual"]}
+                contentStyle={{ background: "#101013", border: "1px solid #27272e", borderRadius: 8, fontSize: 12 }}
+              />
+              <Bar dataKey="Allocated" fill="#94a3b8" radius={[3, 3, 0, 0]} name="Target" />
+              <Bar dataKey="Actual" radius={[3, 3, 0, 0]} name="Actual">{chartData.map((_: any, i: number) => <Cell key={i} fill={["#6366f1", "#f59e0b", "#10b981"][i]} />)}</Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={chartData} barGap={4}>
-            <XAxis dataKey="category" tick={{ fill: "#6b6b7b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: "#6b6b7b", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} width={36} />
-            <Tooltip
-              formatter={(value: number, name: string) => [fmtCurrency(value), name === "Allocated" ? "Target" : "Actual"]}
-              contentStyle={{ background: "#101013", border: "1px solid #27272e", borderRadius: 8, fontSize: 12 }}
-            />
-            <Bar dataKey="Allocated" fill="#94a3b8" radius={[3, 3, 0, 0]} name="Target" />
-            <Bar dataKey="Actual" radius={[3, 3, 0, 0]} name="Actual">{chartData.map((_: any, i: number) => <Cell key={i} fill={["#6366f1", "#f59e0b", "#10b981"][i]} />)}</Bar>
-          </BarChart>
-        </ResponsiveContainer>
-        <table className="sr-only">
-          <caption>Target vs actual spending by category</caption>
-          <thead>
-            <tr><th scope="col">Category</th><th scope="col">Target</th><th scope="col">Actual</th></tr>
-          </thead>
-          <tbody>
-            {chartData.map((row: { category: string; Allocated: number; Actual: number }) => (
-              <tr key={row.category}>
-                <td>{row.category}</td>
-                <td>{fmtCurrency(row.Allocated)}</td>
-                <td>{fmtCurrency(row.Actual)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
-    </div>
+    </BudgetPanel>
   );
 }
