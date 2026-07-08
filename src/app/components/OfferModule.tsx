@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
-import { ArrowRight, TrendingUp, TrendingDown, Minus, ExternalLink, SlidersHorizontal, Link2 } from "lucide-react";
+import { ArrowRight, TrendingUp, TrendingDown, Minus, SlidersHorizontal, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { calcTakeHome, STATE_OPTIONS, CITIES, COST_OF_LIVING_INDEX, fmtCurrency } from "../../lib/calculations";
 import type { OfferComparisonSnapshot, OfferInputsSnapshot } from "../../lib/offerUrlState";
 import {
   computeWeightedVerdict,
   COMP_FOCUS_OPTIONS,
+  colAffordabilityScore,
   formatHousingRange,
   getHousingPricing,
   WORK_STYLE_LABELS,
@@ -30,73 +31,6 @@ interface Props {
   onComparisonChange: (snapshot: OfferComparisonSnapshot) => void;
   onGoToTakeHome?: () => void;
   isActive?: boolean;
-}
-
-const TELEPORT_SLUGS: Record<string, string> = {
-  "San Francisco, CA": "san-francisco-bay-area",
-  "San Jose, CA": "san-jose",
-  "New York, NY": "new-york",
-  "Seattle, WA": "seattle",
-  "Boston, MA": "boston",
-  "Los Angeles, CA": "los-angeles",
-  "San Diego, CA": "san-diego",
-  "Austin, TX": "austin",
-  "Denver, CO": "denver",
-  "Chicago, IL": "chicago",
-  "Atlanta, GA": "atlanta",
-  "Miami, FL": "miami",
-  "Dallas, TX": "dallas",
-  "Portland, OR": "portland-or",
-  "Washington, DC": "washington-dc",
-  "Raleigh, NC": "raleigh",
-  "Phoenix, AZ": "phoenix",
-  "Nashville, TN": "nashville",
-  "Minneapolis, MN": "minneapolis",
-};
-
-interface TeleportScore {
-  score: number | null;
-  loading: boolean;
-}
-
-async function fetchTeleportColScore(city: string): Promise<number | null> {
-  const slug = TELEPORT_SLUGS[city];
-  if (!slug) return null;
-  try {
-    const res = await fetch(`https://api.teleport.org/api/urban_areas/slug:${slug}/scores/`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const categories: Array<{ name: string; score_out_of_10: number }> = data?.categories ?? [];
-    const colCat = categories.find((c) => c.name === "Cost of Living");
-    return colCat ? Math.round(colCat.score_out_of_10 * 10) / 10 : null;
-  } catch {
-    return null;
-  }
-}
-
-function useTeleportScore(city: string, enabled: boolean): TeleportScore {
-  const [score, setScore] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    setLoading(true);
-    fetchTeleportColScore(city).then((s) => {
-      if (active) {
-        setScore(s);
-        setLoading(false);
-        if (TELEPORT_SLUGS[city] && s === null) {
-          toast.error(`Could not load Teleport cost-of-living data for ${city.split(",")[0]}.`);
-        }
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [city, enabled]);
-  return { score, loading };
 }
 
 function PreferenceSlider({
@@ -360,8 +294,8 @@ export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoT
 
   const [showPrefs, setShowPrefs] = useState(true);
 
-  const currTeleport = useTeleportScore(current.city, isActive);
-  const nextTeleport = useTeleportScore(newOffer.city, isActive);
+  const currAffordability = colAffordabilityScore(current.city);
+  const nextAffordability = colAffordabilityScore(newOffer.city);
 
   const calc = (o: OfferInputs) => {
     const totalComp = o.baseSalary + o.bonus + o.equity;
@@ -647,9 +581,9 @@ export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoT
           />
           <Row label="Cost of Living Index" currVal={`${curr.col}`} newVal={`${next.col}`} />
           <Row
-            label={`Teleport CoL Score${currTeleport.loading || nextTeleport.loading ? " …" : ""}`}
-            currVal={currTeleport.score !== null ? `${currTeleport.score}/10` : "—"}
-            newVal={nextTeleport.score !== null ? `${nextTeleport.score}/10` : "—"}
+            label="Affordability Score"
+            currVal={`${currAffordability}/10`}
+            newVal={`${nextAffordability}/10`}
             mono={false}
           />
           <Row
@@ -718,18 +652,9 @@ export function OfferModule({ taxSettings, comparison, onComparisonChange, onGoT
         </div>
       )}
 
-      {(currTeleport.score !== null || nextTeleport.score !== null) && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <ExternalLink size={11} />
-          <span>
-            CoL scores sourced from{" "}
-            <a href="https://teleport.org" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
-              Teleport
-            </a>{" "}
-            · 10 = most affordable
-          </span>
-        </div>
-      )}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span>Affordability scores are estimated from each city&apos;s cost-of-living index (10 = most affordable).</span>
+      </div>
 
       <div
         className={`rounded border p-5 ${

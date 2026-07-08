@@ -84,6 +84,13 @@ export function formatHousingRange(pricing: HousingPricing): string {
   return `${fmtCurrency(pricing.min)} – ${fmtCurrency(pricing.max)} (avg ${fmtCurrency(pricing.avg)})`;
 }
 
+/** Map city CoL index to a 1–10 affordability score (10 = most affordable). */
+export function colAffordabilityScore(city: string): number {
+  const index = COST_OF_LIVING_INDEX[city] ?? 100;
+  const score = 10 - ((index - 85) / 15);
+  return Math.round(Math.max(1, Math.min(10, score)) * 10) / 10;
+}
+
 function workStyleMatch(preferred: WorkStyle, actual: WorkStyle): number {
   const scores: Record<WorkStyle, Record<WorkStyle, number>> = {
     remote: { remote: 100, hybrid: 55, in_office: 10 },
