@@ -9,6 +9,13 @@ export const ROLE_SEARCH_KEYWORDS: Record<string, string[]> = {
   "Engineering Manager": ["engineering manager", "computer and information systems managers", "manager"],
   "Data Engineer": ["data engineer", "database", "data warehouse", "business intelligence"],
   "DevOps / SRE": ["devops", "site reliability", "systems administrator", "network", "cloud"],
+  "Electrical Engineer": ["electrical engineer", "electronics engineer", "electrical", "electronics"],
+  "Mechanical Engineer": ["mechanical engineer", "mechanical", "mechatronics"],
+  "Hardware Engineer": ["hardware engineer", "hardware", "embedded", "fpga", "asic"],
+  "Robotics Engineer": ["robotics engineer", "robotics", "automation engineer", "controls engineer"],
+  "Chemical Engineer": ["chemical engineer", "process engineer", "chemical"],
+  "Civil Engineer": ["civil engineer", "structural engineer", "transportation engineer"],
+  "Research Scientist": ["research scientist", "scientist", "research engineer", "physicist", "chemist"],
 };
 
 const MIN_LIVE_SAMPLE = 25;

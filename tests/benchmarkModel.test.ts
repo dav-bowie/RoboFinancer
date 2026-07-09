@@ -5,6 +5,7 @@ import {
   interpolatePercentile,
   percentileRank,
   resolveBenchmark,
+  roleKeywords,
   scaleBasesToTotalComp,
 } from "../src/lib/benchmarkModel";
 
@@ -56,5 +57,11 @@ describe("benchmarkModel", () => {
 
   it("interpolates static percentile at median", () => {
     expect(interpolatePercentile(250000, staticBands)).toBe(50);
+  });
+
+  it("maps STEM engineering roles to H1B search keywords", () => {
+    expect(roleKeywords("Electrical Engineer")).toContain("electrical engineer");
+    expect(roleKeywords("Mechanical Engineer")).toContain("mechanical engineer");
+    expect(roleKeywords("Research Scientist")).toContain("research scientist");
   });
 });
